@@ -1,0 +1,210 @@
+import AppKit
+
+final class TrendMenuCardView: RoundedPanelView {
+    private let points: [UsageTrendPoint]
+    private let texts: TextBundle
+    private let selectedLabel: NSTextField
+
+    init(points: [UsageTrendPoint], texts: TextBundle) {
+        self.points = points
+        self.texts = texts
+        self.selectedLabel = menuLabel("", size: 10, weight: .regular, color: .secondaryLabelColor)
+        super.init(accentColor: .systemIndigo, fillAlpha: 0.045)
+        selectedLabel.stringValue = valueText(points.last)
+        build()
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    private func build() {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
+        ])
+
+        stack.addArrangedSubview(menuIconTitle(texts.trend, accent: .systemIndigo))
+        let chart = TrendChartView(points: points) { [weak self] point in
+            self?.selectedLabel.stringValue = self?.valueText(point) ?? "--"
+        }
+        chart.translatesAutoresizingMaskIntoConstraints = false
+        chart.heightAnchor.constraint(equalToConstant: 64).isActive = true
+        chart.widthAnchor.constraint(equalToConstant: 332).isActive = true
+        stack.addArrangedSubview(chart)
+
+        let summaryRow = NSStackView()
+        summaryRow.orientation = .horizontal
+        summaryRow.alignment = .firstBaseline
+        summaryRow.spacing = 8
+        summaryRow.addArrangedSubview(legend())
+        summaryRow.addArrangedSubview(NSView())
+        selectedLabel.alignment = .right
+        selectedLabel.lineBreakMode = .byTruncatingMiddle
+        summaryRow.addArrangedSubview(selectedLabel)
+        stack.addArrangedSubview(summaryRow)
+    }
+
+    private func legend() -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 10
+        row.addArrangedSubview(legendItem(texts.requests, color: .systemBlue))
+        row.addArrangedSubview(legendItem(texts.tokens, color: .systemPurple))
+        return row
+    }
+
+    private func valueText(_ point: UsageTrendPoint?) -> String {
+        guard let point else { return "--" }
+        return "\(point.label)  \(MenuValueFormatter.number(point.requests)) req  \(MenuValueFormatter.compact(point.tokens)) Token  \(MenuValueFormatter.number(point.failures)) err"
+    }
+
+    private func legendItem(_ title: String, color: NSColor) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 4
+        let dot = StatusDotView(color: color)
+        dot.translatesAutoresizingMaskIntoConstraints = false
+        dot.widthAnchor.constraint(equalToConstant: 7).isActive = true
+        dot.heightAnchor.constraint(equalToConstant: 7).isActive = true
+        row.addArrangedSubview(dot)
+        row.addArrangedSubview(menuLabel(title, size: 10, weight: .regular, color: .secondaryLabelColor))
+        return row
+    }
+}
+
+final class TrendChartView: NSView {
+    private let points: [UsageTrendPoint]
+    private let onSelect: (UsageTrendPoint?) -> Void
+    private var selectedIndex: Int?
+    private var trackingArea: NSTrackingArea?
+
+    init(points: [UsageTrendPoint], onSelect: @escaping (UsageTrendPoint?) -> Void) {
+        self.points = points
+        self.onSelect = onSelect
+        super.init(frame: .zero)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        drawGrid()
+        guard points.count >= 2 else {
+            drawEmpty()
+            return
+        }
+        drawSeries(values: points.map(\.tokens), color: .systemPurple)
+        drawSeries(values: points.map(\.requests), color: .systemBlue)
+        drawSelection()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let options: NSTrackingArea.Options = [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect]
+        let nextArea = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
+        addTrackingArea(nextArea)
+        trackingArea = nextArea
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        guard points.count >= 2 else { return }
+        let location = convert(event.locationInWindow, from: nil)
+        let clampedX = min(max(location.x, bounds.minX), bounds.maxX)
+        let ratio = bounds.width > 0 ? (clampedX - bounds.minX) / bounds.width : 0
+        selectedIndex = min(max(Int(round(ratio * CGFloat(points.count - 1))), 0), points.count - 1)
+        onSelect(selectedIndex.map { points[$0] })
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        selectedIndex = nil
+        onSelect(points.last)
+        needsDisplay = true
+    }
+
+    private func drawGrid() {
+        NSColor.separatorColor.withAlphaComponent(0.25).setStroke()
+        for index in 0..<4 {
+            let y = bounds.minY + CGFloat(index) * bounds.height / 3
+            let path = NSBezierPath()
+            path.move(to: NSPoint(x: bounds.minX, y: y))
+            path.line(to: NSPoint(x: bounds.maxX, y: y))
+            path.lineWidth = 1
+            path.stroke()
+        }
+    }
+
+    private func drawSeries(values: [Int], color: NSColor) {
+        let maxValue = max(values.max() ?? 0, 1)
+        let path = NSBezierPath()
+        for (index, value) in values.enumerated() {
+            let point = chartPoint(index: index, value: value, maxValue: maxValue)
+            if index == 0 {
+                path.move(to: point)
+            } else {
+                path.line(to: point)
+            }
+        }
+        color.withAlphaComponent(0.9).setStroke()
+        path.lineWidth = 2
+        path.lineJoinStyle = .round
+        path.lineCapStyle = .round
+        path.stroke()
+    }
+
+    private func drawSelection() {
+        guard let selectedIndex, selectedIndex < points.count else { return }
+        let maxTokens = max(points.map(\.tokens).max() ?? 0, 1)
+        let maxRequests = max(points.map(\.requests).max() ?? 0, 1)
+        let tokenPoint = chartPoint(index: selectedIndex, value: points[selectedIndex].tokens, maxValue: maxTokens)
+        let requestPoint = chartPoint(index: selectedIndex, value: points[selectedIndex].requests, maxValue: maxRequests)
+        NSColor.labelColor.withAlphaComponent(0.35).setStroke()
+        let guide = NSBezierPath()
+        guide.move(to: NSPoint(x: tokenPoint.x, y: bounds.minY))
+        guide.line(to: NSPoint(x: tokenPoint.x, y: bounds.maxY))
+        guide.lineWidth = 1
+        guide.stroke()
+        drawPoint(tokenPoint, color: .systemPurple)
+        drawPoint(requestPoint, color: .systemBlue)
+    }
+
+    private func chartPoint(index: Int, value: Int, maxValue: Int) -> NSPoint {
+        let x = bounds.minX + CGFloat(index) / CGFloat(points.count - 1) * bounds.width
+        let y = bounds.minY + CGFloat(value) / CGFloat(maxValue) * bounds.height
+        return NSPoint(x: x, y: y)
+    }
+
+    private func drawPoint(_ point: NSPoint, color: NSColor) {
+        color.setFill()
+        NSBezierPath(ovalIn: NSRect(x: point.x - 3, y: point.y - 3, width: 6, height: 6)).fill()
+    }
+
+    private func drawEmpty() {
+        let text = "--" as NSString
+        text.draw(
+            at: NSPoint(x: bounds.midX - 8, y: bounds.midY - 7),
+            withAttributes: [
+                .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+                .foregroundColor: NSColor.tertiaryLabelColor
+            ]
+        )
+    }
+}

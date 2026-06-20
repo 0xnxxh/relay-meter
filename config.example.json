@@ -1,0 +1,21 @@
+{
+  "baseURL": "https://cpa.example.com",
+  "language": "en",
+  "listItems": [
+    "traffic",
+    "successRate",
+    "tokens",
+    "latency",
+    "recent",
+    "trend",
+    "topModel",
+    "topApiKey",
+    "refreshedAt"
+  ],
+  "managementKey": "replace-with-management-key",
+  "refreshIntervalSeconds": 30,
+  "display": "requests",
+  "titleMetric": "requests",
+  "timeRange": "today",
+  "monitoringPath": "/management.html#/monitoring"
+}

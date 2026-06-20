@@ -1,0 +1,10 @@
+.build/
+dist/
+Resources/AppIcon.iconset/
+.DS_Store
+.codex/
+sparkle_private_key
+Vendor/
+
+#codex
+.codex
