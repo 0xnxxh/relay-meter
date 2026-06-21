@@ -6,7 +6,7 @@ SPARKLE_DIR="$("$ROOT_DIR/scripts/ensure_sparkle.sh")"
 GENERATE_KEYS="$SPARKLE_DIR/bin/generate_keys"
 KEY_FILE="$ROOT_DIR/sparkle_private_key"
 PUBLIC_KEY_FILE="$ROOT_DIR/sparkle_public_ed_key.txt"
-ACCOUNT="${SPARKLE_KEY_ACCOUNT:-0xnxxh.cpa-menubar}"
+ACCOUNT="${SPARKLE_KEY_ACCOUNT:-0xnxxh.relay-meter}"
 
 if [[ -e "$KEY_FILE" ]]; then
   echo "refusing to overwrite $KEY_FILE" >&2

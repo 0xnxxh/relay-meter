@@ -1,8 +1,12 @@
 import Foundation
 
 struct AppConfig: Codable {
+    var adapters: [AdapterConfig]
+    var platform: MonitorPlatform?
     var baseURL: String
     var managementKey: String
+    var authHeaderName: String?
+    var newApiUserID: Int?
     var refreshIntervalSeconds: TimeInterval?
     var display: String?
     var monitoringPath: String?
@@ -12,8 +16,24 @@ struct AppConfig: Codable {
     var timeRange: UsageTimeRange?
 
     static let defaultConfig = AppConfig(
-        baseURL: "https://cpa.example.com",
+        adapters: [
+            AdapterConfig(
+                id: "primary",
+                name: "Relay Meter",
+                enabled: true,
+                platform: .cliproxyapiPro,
+                baseURL: "https://relay.example.com",
+                managementKey: "replace-with-management-key",
+                authHeaderName: MonitorPlatform.cliproxyapiPro.defaultAuthHeaderName,
+                newApiUserID: nil,
+                monitoringPath: MonitorPlatform.cliproxyapiPro.defaultMonitoringPath
+            )
+        ],
+        platform: .cliproxyapiPro,
+        baseURL: "https://relay.example.com",
         managementKey: "replace-with-management-key",
+        authHeaderName: MonitorPlatform.cliproxyapiPro.defaultAuthHeaderName,
+        newApiUserID: nil,
         refreshIntervalSeconds: 30,
         display: DisplayMetric.requests.rawValue,
         monitoringPath: "/management.html#/monitoring",
@@ -44,10 +64,106 @@ struct AppConfig: Codable {
         timeRange ?? .today
     }
 
+    var resolvedAdapters: [AdapterConfig] {
+        adapters.filter { $0.isEnabled }
+    }
+
+    var primaryAdapter: AdapterConfig {
+        resolvedAdapters.first ?? AppConfig.defaultConfig.adapters[0]
+    }
+
+    var resolvedPlatform: MonitorPlatform {
+        primaryAdapter.platform
+    }
+
+    var resolvedAuthHeaderName: String {
+        primaryAdapter.resolvedAuthHeaderName
+    }
+
+    var monitoringURL: URL? {
+        primaryAdapter.monitoringURL
+    }
+
+    func scoped(to adapter: AdapterConfig) -> AppConfig {
+        var scoped = self
+        scoped.adapters = [adapter]
+        scoped.platform = adapter.platform
+        scoped.baseURL = adapter.baseURL
+        scoped.managementKey = adapter.managementKey
+        scoped.authHeaderName = adapter.authHeaderName
+        scoped.newApiUserID = adapter.newApiUserID
+        scoped.monitoringPath = adapter.monitoringPath
+        return scoped
+    }
+}
+
+struct AdapterConfig: Codable {
+    var id: String?
+    var name: String?
+    var enabled: Bool?
+    var platform: MonitorPlatform
+    var baseURL: String
+    var managementKey: String
+    var authHeaderName: String?
+    var newApiUserID: Int?
+    var monitoringPath: String?
+
+    var isEnabled: Bool {
+        enabled ?? true
+    }
+
+    var resolvedID: String {
+        let explicit = id?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let explicit, !explicit.isEmpty { return explicit }
+        return "\(platform.rawValue)-\(baseURL)"
+    }
+
+    var displayName: String {
+        let explicit = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let explicit, !explicit.isEmpty { return explicit }
+        return platform.displayName
+    }
+
+    var resolvedAuthHeaderName: String {
+        let explicit = authHeaderName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let explicit, !explicit.isEmpty { return explicit }
+        return platform.defaultAuthHeaderName
+    }
+
     var monitoringURL: URL? {
         let trimmed = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let path = monitoringPath ?? "/management.html#/monitoring"
+        let path = monitoringPath ?? platform.defaultMonitoringPath
         return URL(string: trimmed + path)
+    }
+}
+
+enum MonitorPlatform: String, Codable, CaseIterable {
+    case cliproxyapiPro
+    case sub2api
+    case newApi
+
+    var displayName: String {
+        switch self {
+        case .cliproxyapiPro: return "CLIProxyAPI-Pro"
+        case .sub2api: return "sub2api"
+        case .newApi: return "new-api"
+        }
+    }
+
+    var defaultAuthHeaderName: String {
+        switch self {
+        case .cliproxyapiPro: return "Authorization"
+        case .sub2api: return "x-api-key"
+        case .newApi: return "Authorization"
+        }
+    }
+
+    var defaultMonitoringPath: String {
+        switch self {
+        case .cliproxyapiPro: return "/management.html#/monitoring"
+        case .sub2api: return "/admin/dashboard"
+        case .newApi: return "/"
+        }
     }
 }
 
@@ -161,6 +277,21 @@ struct UsageScope {
         guard inputTokens > 0 else { return 0 }
         return Double(cacheTokens) / Double(inputTokens)
     }
+
+    mutating func add(_ other: UsageScope) {
+        totalRequests += other.totalRequests
+        successCount += other.successCount
+        failureCount += other.failureCount
+        totalTokens += other.totalTokens
+        inputTokens += other.inputTokens
+        outputTokens += other.outputTokens
+        reasoningTokens += other.reasoningTokens
+        cacheTokens += other.cacheTokens
+        weightedLatencyTotal += other.weightedLatencyTotal
+        latencyWeight += other.latencyWeight
+        weightedTtftTotal += other.weightedTtftTotal
+        ttftWeight += other.ttftWeight
+    }
 }
 
 struct UsageRankingRow {
@@ -183,6 +314,9 @@ struct UsageTrendPoint {
 }
 
 struct UsageSnapshot {
+    var sourceID: String
+    var sourceName: String
+    var platform: MonitorPlatform
     var selectedRange: UsageTimeRange
     var scope: UsageScope
     var recent: UsageScope
@@ -199,6 +333,25 @@ struct UsageSnapshot {
         if scope.totalRequests >= 20 && scope.successRate < 0.99 { return .warn }
         if scope.totalRequests == 0 && recent.totalRequests == 0 { return .idle }
         return .good
+    }
+}
+
+struct AdapterSnapshotError {
+    var adapterName: String
+    var message: String
+}
+
+struct UsageDashboardSnapshot {
+    static let aggregateSourceID = "all"
+    var selectedRange: UsageTimeRange
+    var aggregate: UsageSnapshot
+    var adapters: [UsageSnapshot]
+    var errors: [AdapterSnapshotError]
+    var refreshedAt: Date
+
+    var health: HealthState {
+        if !errors.isEmpty { return adapters.isEmpty ? .bad : .warn }
+        return aggregate.health
     }
 }
 
@@ -228,6 +381,9 @@ enum MonitorError: LocalizedError {
     case invalidBaseURL(String)
     case invalidStatus(Int, String)
     case invalidResponse
+    case unsupportedPlatform(MonitorPlatform)
+    case noAdaptersConfigured
+    case allAdaptersFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -240,6 +396,12 @@ enum MonitorError: LocalizedError {
             return trimmed.isEmpty ? "HTTP \(status)" : "HTTP \(status): \(trimmed)"
         case .invalidResponse:
             return "Invalid server response"
+        case .unsupportedPlatform(let platform):
+            return "Unsupported platform: \(platform.displayName)"
+        case .noAdaptersConfigured:
+            return "No adapters configured"
+        case .allAdaptersFailed(let message):
+            return "All adapters failed: \(message)"
         }
     }
 }

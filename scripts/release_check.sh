@@ -12,12 +12,12 @@ APPCAST_PATH="$("$ROOT_DIR/scripts/generate_appcast.sh")"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE" >/dev/null
 /usr/bin/hdiutil verify "$DMG_PATH" >/dev/null
 
-if ! grep -q "CPA-Menubar-v$APP_VERSION.dmg" "$APPCAST_PATH"; then
-  echo "appcast does not reference CPA-Menubar-v$APP_VERSION.dmg" >&2
+if ! grep -q "Relay-Meter-v$APP_VERSION.dmg" "$APPCAST_PATH"; then
+  echo "appcast does not reference Relay-Meter-v$APP_VERSION.dmg" >&2
   exit 1
 fi
 
-if ! grep -q "https://github.com/0xnxxh/cpa-menubar/releases/download/v$APP_VERSION/CPA-Menubar-v$APP_VERSION.dmg" "$APPCAST_PATH"; then
+if ! grep -q "https://github.com/0xnxxh/relay-meter/releases/download/v$APP_VERSION/Relay-Meter-v$APP_VERSION.dmg" "$APPCAST_PATH"; then
   echo "appcast does not reference the versioned GitHub Release asset URL" >&2
   exit 1
 fi

@@ -7,12 +7,12 @@ source "$ROOT_DIR/scripts/version.sh"
 SPARKLE_DIR="$("$ROOT_DIR/scripts/ensure_sparkle.sh")"
 GENERATE_APPCAST="$SPARKLE_DIR/bin/generate_appcast"
 PRIVATE_KEY="${SPARKLE_PRIVATE_KEY:-$ROOT_DIR/sparkle_private_key}"
-ACCOUNT="${SPARKLE_KEY_ACCOUNT:-0xnxxh.cpa-menubar}"
+ACCOUNT="${SPARKLE_KEY_ACCOUNT:-0xnxxh.relay-meter}"
 DIST_DIR="$ROOT_DIR/dist"
-DMG_PATH="$DIST_DIR/CPA-Menubar-v$APP_VERSION.dmg"
+DMG_PATH="$DIST_DIR/Relay-Meter-v$APP_VERSION.dmg"
 APPCAST_PATH="$DIST_DIR/appcast.xml"
 APPCAST_WORK_DIR="$DIST_DIR/appcast-work"
-RELEASE_BASE_URL="${RELEASE_BASE_URL:-https://github.com/0xnxxh/cpa-menubar/releases/download/v$APP_VERSION/}"
+RELEASE_BASE_URL="${RELEASE_BASE_URL:-https://github.com/0xnxxh/relay-meter/releases/download/v$APP_VERSION/}"
 
 if [[ ! -f "$PRIVATE_KEY" ]]; then
   echo "missing Sparkle private key: $PRIVATE_KEY" >&2

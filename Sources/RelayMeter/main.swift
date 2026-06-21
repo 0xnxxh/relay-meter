@@ -15,7 +15,8 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     var config: AppConfig?
     private var refreshTimer: Timer?
     private var settingsWindow: SettingsWindowController?
-    var lastSnapshot: UsageSnapshot?
+    var lastSnapshot: UsageDashboardSnapshot?
+    private var selectedSnapshotSourceID = UsageDashboardSnapshot.aggregateSourceID
     private var snapshotItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private var configWatcher: DispatchSourceFileSystemObject?
     private var configWatchDescriptor: CInt = -1
@@ -26,12 +27,35 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        configureApplicationMenu()
         logger.info("app launch log=\(logger.url.path)")
         loadConfigAndStart()
     }
 
+    private func configureApplicationMenu() {
+        let mainMenu = NSMenu()
+        let appMenuItem = NSMenuItem()
+        let editMenuItem = NSMenuItem()
+
+        mainMenu.addItem(appMenuItem)
+        mainMenu.addItem(editMenuItem)
+
+        let appMenu = NSMenu()
+        appMenu.addItem(NSMenuItem(title: "Quit Relay Meter", action: #selector(quit), keyEquivalent: "q"))
+        appMenuItem.submenu = appMenu
+
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+        editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+        editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+        editMenuItem.submenu = editMenu
+
+        NSApp.mainMenu = mainMenu
+    }
+
     private func configureMenu() {
-        statusItem.button?.title = "CPA --"
+        statusItem.button?.title = "RM --"
         let texts = TextBundle.forLanguage(config?.resolvedLanguage ?? .english)
         let menu = NSMenu()
         menu.delegate = self
@@ -155,20 +179,20 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
 
         if lastSnapshot == nil {
             let texts = TextBundle.forLanguage(config?.resolvedLanguage ?? .english)
-            statusItem.button?.title = "CPA \(texts.loading)"
+            statusItem.button?.title = "RM \(texts.loading)"
             renderSnapshotMenuView()
         }
         refreshGeneration += 1
         let generation = refreshGeneration
         Task {
             do {
-                let snapshot = try await client.fetchSnapshot()
+                    let snapshot = try await client.fetchDashboardSnapshot()
                 await MainActor.run {
                     guard generation == self.refreshGeneration else {
                         self.logger.info("refresh ignored stale generation=\(generation) current=\(self.refreshGeneration) range=\(snapshot.selectedRange.rawValue)")
                         return
                     }
-                    self.logger.info("refresh ok range=\(snapshot.selectedRange.rawValue) health=\(snapshot.health.label) requests=\(snapshot.scope.totalRequests) failures=\(snapshot.scope.failureCount) recentFailures=\(snapshot.recent.failureCount) cards=\(self.visibleCardItems())")
+                    self.logger.info("refresh ok range=\(snapshot.selectedRange.rawValue) health=\(snapshot.health.label) requests=\(snapshot.aggregate.scope.totalRequests) failures=\(snapshot.aggregate.scope.failureCount) recentFailures=\(snapshot.aggregate.recent.failureCount) adapters=\(snapshot.adapters.count) errors=\(snapshot.errors.count) cards=\(self.visibleCardItems())")
                     showSnapshot(snapshot)
                 }
             } catch {
@@ -184,8 +208,9 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         }
     }
 
-    func showSnapshot(_ snapshot: UsageSnapshot) {
+    func showSnapshot(_ snapshot: UsageDashboardSnapshot) {
         lastSnapshot = snapshot
+        ensureSelectedSnapshotExists(in: snapshot)
         renderMenuTitle(for: snapshot)
         renderSnapshotMenuView()
         errorItem.isHidden = true
@@ -194,32 +219,35 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
 
     private func showError(_ message: String) {
         let texts = TextBundle.forLanguage(config?.resolvedLanguage ?? .english)
-        statusItem.button?.title = "CPA !"
+        statusItem.button?.title = "RM !"
         errorItem.title = "\(texts.error): \(message)"
         errorItem.isHidden = false
     }
 
-    private func menuTitle(for snapshot: UsageSnapshot) -> String {
+    private func menuTitle(for snapshot: UsageDashboardSnapshot) -> String {
         let texts = TextBundle.forLanguage(config?.resolvedLanguage ?? .english)
+        let aggregate = snapshot.aggregate
         switch config?.resolvedTitleMetric ?? .requests {
-        case .tokens: return title(snapshot, formatCompact(snapshot.scope.totalTokens))
-        case .failures: return title(snapshot, "\(formatCompact(snapshot.scope.failureCount)) \(texts.failures)")
-        case .successRate: return title(snapshot, formatPercent(snapshot.scope.successRate))
-        case .latency: return title(snapshot, snapshot.scope.avgLatencyMs.map(MenuValueFormatter.duration) ?? "--")
-        case .cache: return title(snapshot, "\(formatCompact(snapshot.scope.cacheTokens)) \(texts.cacheUnit)")
-        case .recent: return title(snapshot, "\(formatCompact(snapshot.recent.totalRequests)) / \(texts.last15m)")
-        case .requests: return title(snapshot, "\(formatCompact(snapshot.scope.totalRequests)) / \(formatPercent(snapshot.scope.successRate))")
+        case .tokens: return title(snapshot, formatCompact(aggregate.scope.totalTokens))
+        case .failures: return title(snapshot, "\(formatCompact(aggregate.scope.failureCount)) \(texts.failures)")
+        case .successRate: return title(snapshot, formatPercent(aggregate.scope.successRate))
+        case .latency: return title(snapshot, aggregate.scope.avgLatencyMs.map(MenuValueFormatter.duration) ?? "--")
+        case .cache: return title(snapshot, "\(formatCompact(aggregate.scope.cacheTokens)) \(texts.cacheUnit)")
+        case .recent: return title(snapshot, "\(formatCompact(aggregate.recent.totalRequests)) / \(texts.last15m)")
+        case .requests: return title(snapshot, "\(formatCompact(aggregate.scope.totalRequests)) / \(formatPercent(aggregate.scope.successRate))")
         }
     }
 
-    private func title(_ snapshot: UsageSnapshot, _ value: String) -> String { "● \(value)" }
+    private func title(_ snapshot: UsageDashboardSnapshot, _ value: String) -> String {
+        snapshot.adapters.count > 1 ? "● \(value) · \(snapshot.adapters.count)" : "● \(value)"
+    }
 
-    private func renderMenuTitle(for snapshot: UsageSnapshot) {
+    private func renderMenuTitle(for snapshot: UsageDashboardSnapshot) {
         let attributed = NSMutableAttributedString(string: menuTitle(for: snapshot))
         attributed.addAttribute(.foregroundColor, value: menuHealthColor(snapshot.health), range: NSRange(location: 0, length: 1))
         attributed.addAttribute(.foregroundColor, value: NSColor.labelColor, range: NSRange(location: 2, length: attributed.length - 2))
         statusItem.button?.attributedTitle = attributed
-        statusItem.button?.toolTip = snapshot.health.label(language: config?.resolvedLanguage ?? .english)
+        statusItem.button?.toolTip = "\(snapshot.health.label(language: config?.resolvedLanguage ?? .english)) · \(snapshot.adapters.count) adapters"
     }
 
     func applyListVisibility() {
@@ -230,14 +258,17 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private func renderSnapshotMenuView() {
         let texts = TextBundle.forLanguage(config?.resolvedLanguage ?? .english)
         let selectRange: (UsageTimeRange) -> Void = { [weak self] in self?.selectTimeRangeTab($0) }
+        let selectSource: (String) -> Void = { [weak self] in self?.selectSnapshotSource($0) }
         let refresh: () -> Void = { [weak self] in self?.refreshNow() }
         let openMonitoring: () -> Void = { [weak self] in self?.openMonitoringPage() }
         if let lastSnapshot {
             snapshotItem.view = SnapshotMenuView(
-                snapshot: lastSnapshot,
+                dashboard: lastSnapshot,
                 config: config,
                 texts: texts,
+                selectedSourceID: selectedSnapshotSourceID,
                 onRangeSelected: selectRange,
+                onSourceSelected: selectSource,
                 onRefresh: refresh,
                 onOpenMonitoring: openMonitoring
             )
@@ -246,7 +277,9 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
                 texts: texts,
                 config: config,
                 selectedRange: config?.resolvedTimeRange ?? .today,
+                selectedSourceID: selectedSnapshotSourceID,
                 onRangeSelected: selectRange,
+                onSourceSelected: selectSource,
                 onRefresh: refresh,
                 onOpenMonitoring: openMonitoring
             )
@@ -266,13 +299,27 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
             lastSnapshot = nil
             logger.info("time range selected tab=\(range.rawValue)")
             let texts = TextBundle.forLanguage(nextConfig.resolvedLanguage)
-            statusItem.button?.title = "CPA \(texts.loading)"
+            statusItem.button?.title = "RM \(texts.loading)"
             renderSnapshotMenuView()
             refreshNow()
         } catch {
             isSavingConfig = false
             logger.error("time range save failed \(error.localizedDescription)")
             showError(error.localizedDescription)
+        }
+    }
+
+    private func selectSnapshotSource(_ sourceID: String) {
+        selectedSnapshotSourceID = sourceID
+        renderSnapshotMenuView()
+        logger.info("snapshot source selected id=\(sourceID)")
+    }
+
+    private func ensureSelectedSnapshotExists(in snapshot: UsageDashboardSnapshot) {
+        guard selectedSnapshotSourceID != UsageDashboardSnapshot.aggregateSourceID else { return }
+        let available = snapshot.adapters.contains { $0.sourceID == selectedSnapshotSourceID }
+        if !available {
+            selectedSnapshotSourceID = UsageDashboardSnapshot.aggregateSourceID
         }
     }
 

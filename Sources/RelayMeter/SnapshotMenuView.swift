@@ -3,22 +3,44 @@ import AppKit
 final class SnapshotMenuView: NSView {
     private let contentWidth: CGFloat = 380
     private let onRangeSelected: ((UsageTimeRange) -> Void)?
+    private let onSourceSelected: ((String) -> Void)?
     private let onRefresh: (() -> Void)?
     private let onOpenMonitoring: (() -> Void)?
+    private var sourceTabs: [(id: String, title: String)] = []
 
     init(
         snapshot: UsageSnapshot,
         config: AppConfig?,
         texts: TextBundle,
         onRangeSelected: ((UsageTimeRange) -> Void)? = nil,
+        onSourceSelected: ((String) -> Void)? = nil,
         onRefresh: (() -> Void)? = nil,
         onOpenMonitoring: (() -> Void)? = nil
     ) {
         self.onRangeSelected = onRangeSelected
+        self.onSourceSelected = onSourceSelected
         self.onRefresh = onRefresh
         self.onOpenMonitoring = onOpenMonitoring
         super.init(frame: NSRect(x: 0, y: 0, width: contentWidth, height: 1))
         build(snapshot: snapshot, config: config, texts: texts)
+    }
+
+    init(
+        dashboard: UsageDashboardSnapshot,
+        config: AppConfig?,
+        texts: TextBundle,
+        selectedSourceID: String = UsageDashboardSnapshot.aggregateSourceID,
+        onRangeSelected: ((UsageTimeRange) -> Void)? = nil,
+        onSourceSelected: ((String) -> Void)? = nil,
+        onRefresh: (() -> Void)? = nil,
+        onOpenMonitoring: (() -> Void)? = nil
+    ) {
+        self.onRangeSelected = onRangeSelected
+        self.onSourceSelected = onSourceSelected
+        self.onRefresh = onRefresh
+        self.onOpenMonitoring = onOpenMonitoring
+        super.init(frame: NSRect(x: 0, y: 0, width: contentWidth, height: 1))
+        build(dashboard: dashboard, selectedSourceID: selectedSourceID, config: config, texts: texts)
     }
 
     required init?(coder: NSCoder) {
@@ -29,11 +51,16 @@ final class SnapshotMenuView: NSView {
         texts: TextBundle,
         config: AppConfig?,
         selectedRange: UsageTimeRange,
+        selectedSourceID: String = UsageDashboardSnapshot.aggregateSourceID,
         onRangeSelected: ((UsageTimeRange) -> Void)? = nil,
+        onSourceSelected: ((String) -> Void)? = nil,
         onRefresh: (() -> Void)? = nil,
         onOpenMonitoring: (() -> Void)? = nil
     ) -> SnapshotMenuView {
         let snapshot = UsageSnapshot(
+            sourceID: "loading",
+            sourceName: config?.primaryAdapter.displayName ?? "Relay Meter",
+            platform: config?.resolvedPlatform ?? .cliproxyapiPro,
             selectedRange: selectedRange,
             scope: UsageScope(),
             recent: UsageScope(),
@@ -42,18 +69,80 @@ final class SnapshotMenuView: NSView {
             topApiKeys: [],
             refreshedAt: Date()
         )
+        let dashboard = UsageDashboardSnapshot(
+            selectedRange: selectedRange,
+            aggregate: snapshot,
+            adapters: [],
+            errors: [],
+            refreshedAt: Date()
+        )
         return SnapshotMenuView(
-            snapshot: snapshot,
+            dashboard: dashboard,
             config: config,
             texts: texts,
+            selectedSourceID: selectedSourceID,
             onRangeSelected: onRangeSelected,
+            onSourceSelected: onSourceSelected,
             onRefresh: onRefresh,
             onOpenMonitoring: onOpenMonitoring
         )
     }
 
-    private func build(snapshot: UsageSnapshot, config: AppConfig?, texts: TextBundle) {
+    private func build(dashboard: UsageDashboardSnapshot, selectedSourceID: String, config: AppConfig?, texts: TextBundle) {
+        let root = baseStack()
         let enabled = Set(config?.resolvedListItems ?? DisplayItem.defaultItems)
+        let selectedSnapshot = snapshot(for: selectedSourceID, dashboard: dashboard)
+        root.addArrangedSubview(header(
+            snapshot: selectedSnapshot,
+            title: title(for: selectedSnapshot, dashboard: dashboard, texts: texts),
+            dashboard: dashboard,
+            selectedSourceID: selectedSnapshot.sourceID,
+            config: config,
+            enabled: enabled,
+            texts: texts
+        ))
+
+        for card in metricCards(snapshot: selectedSnapshot, enabled: enabled, texts: texts) {
+            root.addArrangedSubview(card)
+        }
+
+        if selectedSnapshot.sourceID == UsageDashboardSnapshot.aggregateSourceID, !dashboard.errors.isEmpty {
+            root.addArrangedSubview(adapterErrorsCard(dashboard: dashboard, texts: texts))
+        }
+
+        if enabled.contains(.topModel) || enabled.contains(.topApiKey) {
+            root.addArrangedSubview(rankingCard(snapshot: selectedSnapshot, enabled: enabled, texts: texts))
+        }
+
+        if enabled.contains(.trend) {
+            root.addArrangedSubview(trendCard(snapshot: selectedSnapshot, texts: texts))
+        }
+
+        finalizeLayout(root: root)
+    }
+
+    private func build(snapshot: UsageSnapshot, config: AppConfig?, texts: TextBundle) {
+        let root = baseStack()
+        let enabled = Set(config?.resolvedListItems ?? DisplayItem.defaultItems)
+        root.addArrangedSubview(header(snapshot: snapshot, title: "\(snapshot.sourceName) · \(snapshot.selectedRange.label(texts: texts))", dashboard: nil, selectedSourceID: snapshot.sourceID, config: config, enabled: enabled, texts: texts))
+
+        let cards = metricCards(snapshot: snapshot, enabled: enabled, texts: texts)
+        for card in cards {
+            root.addArrangedSubview(card)
+        }
+
+        if enabled.contains(.topModel) || enabled.contains(.topApiKey) {
+            root.addArrangedSubview(rankingCard(snapshot: snapshot, enabled: enabled, texts: texts))
+        }
+
+        if enabled.contains(.trend) {
+            root.addArrangedSubview(trendCard(snapshot: snapshot, texts: texts))
+        }
+
+        finalizeLayout(root: root)
+    }
+
+    private func baseStack() -> NSStackView {
         let root = NSStackView()
         root.orientation = .vertical
         root.alignment = .leading
@@ -69,28 +158,16 @@ final class SnapshotMenuView: NSView {
             root.bottomAnchor.constraint(equalTo: bottomAnchor),
             widthAnchor.constraint(equalToConstant: contentWidth)
         ])
+        return root
+    }
 
-        root.addArrangedSubview(header(snapshot: snapshot, config: config, enabled: enabled, texts: texts))
-
-        let cards = metricCards(snapshot: snapshot, enabled: enabled, texts: texts)
-        for card in cards {
-            root.addArrangedSubview(card)
-        }
-
-        if enabled.contains(.topModel) || enabled.contains(.topApiKey) {
-            root.addArrangedSubview(rankingCard(snapshot: snapshot, enabled: enabled, texts: texts))
-        }
-
-        if enabled.contains(.trend) {
-            root.addArrangedSubview(trendCard(snapshot: snapshot, texts: texts))
-        }
-
+    private func finalizeLayout(root: NSStackView) {
         layoutSubtreeIfNeeded()
         let height = root.fittingSize.height
         setFrameSize(NSSize(width: contentWidth, height: height))
     }
 
-    private func header(snapshot: UsageSnapshot, config: AppConfig?, enabled: Set<DisplayItem>, texts: TextBundle) -> NSView {
+    private func header(snapshot: UsageSnapshot, title: String, dashboard: UsageDashboardSnapshot?, selectedSourceID: String, config: AppConfig?, enabled: Set<DisplayItem>, texts: TextBundle) -> NSView {
         let card = RoundedPanelView(accentColor: menuHealthColor(snapshot.health), fillAlpha: 0.08)
         card.translatesAutoresizingMaskIntoConstraints = false
         card.widthAnchor.constraint(equalToConstant: contentWidth - 24).isActive = true
@@ -115,7 +192,7 @@ final class SnapshotMenuView: NSView {
         topRow.spacing = 10
         row.addArrangedSubview(topRow)
 
-        let rangeLabel = menuLabel(snapshot.selectedRange.label(texts: texts), size: 13, weight: .semibold, color: .labelColor)
+        let rangeLabel = menuLabel(title, size: 13, weight: .semibold, color: .labelColor)
         topRow.addArrangedSubview(rangeLabel)
         topRow.addArrangedSubview(healthIndicator(snapshot: snapshot, config: config))
 
@@ -131,8 +208,70 @@ final class SnapshotMenuView: NSView {
         topRow.addArrangedSubview(actionButton(systemSymbol: "safari", fallbackTitle: "M", tooltip: texts.openMonitoring, action: #selector(openMonitoringTapped)))
 
         row.addArrangedSubview(rangeTabs(selectedRange: snapshot.selectedRange, texts: texts))
+        if let dashboard, !dashboard.adapters.isEmpty {
+            row.addArrangedSubview(sourceTabs(dashboard: dashboard, selectedSourceID: selectedSourceID, texts: texts))
+        }
 
         return card
+    }
+
+    private func snapshot(for sourceID: String, dashboard: UsageDashboardSnapshot) -> UsageSnapshot {
+        if sourceID == UsageDashboardSnapshot.aggregateSourceID {
+            return dashboard.aggregate
+        }
+        return dashboard.adapters.first { $0.sourceID == sourceID } ?? dashboard.aggregate
+    }
+
+    private func title(for snapshot: UsageSnapshot, dashboard: UsageDashboardSnapshot, texts: TextBundle) -> String {
+        let label = dashboard.selectedRange.label(texts: texts)
+        if snapshot.sourceID == UsageDashboardSnapshot.aggregateSourceID {
+            return "\(texts.allAdapters) · \(dashboard.adapters.count) · \(label)"
+        }
+        return "\(snapshot.sourceName) · \(label)"
+    }
+
+    private func adapterErrorsCard(dashboard: UsageDashboardSnapshot, texts: TextBundle) -> NSView {
+        let card = RoundedPanelView(accentColor: .systemTeal, fillAlpha: 0.045)
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.widthAnchor.constraint(equalToConstant: contentWidth - 24).isActive = true
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 11),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -11),
+            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 8),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -8)
+        ])
+
+        stack.addArrangedSubview(menuIconTitle(texts.error, accent: .systemTeal))
+        for error in dashboard.errors {
+            stack.addArrangedSubview(errorLine(error: error, texts: texts))
+        }
+        return card
+    }
+
+    private func errorLine(error: AdapterSnapshotError, texts: TextBundle) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
+
+        let dot = StatusDotView(color: .systemRed)
+        dot.translatesAutoresizingMaskIntoConstraints = false
+        dot.widthAnchor.constraint(equalToConstant: 9).isActive = true
+        dot.heightAnchor.constraint(equalToConstant: 9).isActive = true
+        row.addArrangedSubview(dot)
+
+        let message = menuLabel("\(error.adapterName): \(texts.error)", size: 11, weight: .medium, color: .secondaryLabelColor)
+        message.toolTip = error.message
+        row.addArrangedSubview(message)
+        return row
     }
 
     private func healthIndicator(snapshot: UsageSnapshot, config: AppConfig?) -> NSView {
@@ -158,6 +297,29 @@ final class SnapshotMenuView: NSView {
         control.translatesAutoresizingMaskIntoConstraints = false
         control.widthAnchor.constraint(equalToConstant: contentWidth - 48).isActive = true
         return control
+    }
+
+    private func sourceTabs(dashboard: UsageDashboardSnapshot, selectedSourceID: String, texts: TextBundle) -> NSView {
+        let sources = sourceTabItems(dashboard: dashboard, texts: texts)
+        sourceTabs = sources
+        let control = NSSegmentedControl(
+            labels: sources.map { $0.title },
+            trackingMode: .selectOne,
+            target: self,
+            action: #selector(selectSource)
+        )
+        control.segmentStyle = .texturedRounded
+        control.selectedSegment = sources.firstIndex { $0.id == selectedSourceID } ?? 0
+        control.translatesAutoresizingMaskIntoConstraints = false
+        control.widthAnchor.constraint(equalToConstant: contentWidth - 48).isActive = true
+        control.toolTip = texts.adapters
+        return control
+    }
+
+    private func sourceTabItems(dashboard: UsageDashboardSnapshot, texts: TextBundle) -> [(id: String, title: String)] {
+        var items = [(UsageDashboardSnapshot.aggregateSourceID, texts.allAdapters)]
+        items.append(contentsOf: dashboard.adapters.map { ($0.sourceID, $0.sourceName) })
+        return items
     }
 
     private func actionButton(systemSymbol: String, fallbackTitle: String, tooltip: String, action: Selector) -> NSButton {
@@ -325,6 +487,11 @@ final class SnapshotMenuView: NSView {
         let ranges = UsageTimeRange.allCases
         guard sender.selectedSegment >= 0, sender.selectedSegment < ranges.count else { return }
         onRangeSelected?(ranges[sender.selectedSegment])
+    }
+
+    @objc private func selectSource(_ sender: NSSegmentedControl) {
+        guard sender.selectedSegment >= 0, sender.selectedSegment < sourceTabs.count else { return }
+        onSourceSelected?(sourceTabs[sender.selectedSegment].id)
     }
 
     @objc private func refreshTapped() {

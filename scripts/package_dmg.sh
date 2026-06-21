@@ -4,11 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/version.sh"
 
-APP_NAME="CPA Menubar"
+APP_NAME="Relay Meter"
 DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 DMG_STAGING="$DIST_DIR/dmg-staging"
-DMG_NAME="CPA-Menubar-v$APP_VERSION.dmg"
+DMG_NAME="Relay-Meter-v$APP_VERSION.dmg"
 DMG_PATH="$DIST_DIR/$DMG_NAME"
 
 if [[ ! -d "$APP_BUNDLE" ]]; then
@@ -21,7 +21,7 @@ cp -R "$APP_BUNDLE" "$DMG_STAGING/"
 ln -s /Applications "$DMG_STAGING/Applications"
 
 /usr/bin/hdiutil create \
-  -volname "CPA Menubar $APP_VERSION" \
+  -volname "Relay Meter $APP_VERSION" \
   -srcfolder "$DMG_STAGING" \
   -ov \
   -format UDZO \

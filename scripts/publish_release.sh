@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/version.sh"
 
 TAG="v$APP_VERSION"
-DMG_PATH="$ROOT_DIR/dist/CPA-Menubar-v$APP_VERSION.dmg"
+DMG_PATH="$ROOT_DIR/dist/Relay-Meter-v$APP_VERSION.dmg"
 APPCAST_PATH="$ROOT_DIR/dist/appcast.xml"
 
 if [[ "${CONFIRM_PUBLISH:-}" != "1" ]]; then
@@ -21,12 +21,12 @@ if [[ "$(git -C "$ROOT_DIR" status --short)" != "" ]]; then
 fi
 
 if ! git -C "$ROOT_DIR" rev-parse "$TAG" >/dev/null 2>&1; then
-  git -C "$ROOT_DIR" tag -a "$TAG" -m "CPA Menubar $APP_VERSION"
+  git -C "$ROOT_DIR" tag -a "$TAG" -m "Relay Meter $APP_VERSION"
 fi
 
 gh release create "$TAG" \
   "$DMG_PATH" \
   "$APPCAST_PATH" \
-  --repo 0xnxxh/cpa-menubar \
-  --title "CPA Menubar $APP_VERSION" \
-  --notes "CPA Menubar $APP_VERSION"
+  --repo 0xnxxh/relay-meter \
+  --title "Relay Meter $APP_VERSION" \
+  --notes "Relay Meter $APP_VERSION"

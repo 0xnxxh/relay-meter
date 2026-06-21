@@ -22,8 +22,13 @@ struct TextBundle {
     let checkForUpdates: String
     let openMonitoring: String
     let refresh: String
+    let platform: String
+    let adapters: String
+    let adapterName: String
+    let allAdapters: String
     let baseURL: String
     let managementKey: String
+    let newApiUserID: String
     let refreshIntervalSeconds: String
     let quit: String
     let total: String
@@ -55,7 +60,11 @@ struct TextBundle {
         updated: "更新", settings: "设置", checkForUpdates: "检查更新...",
         openMonitoring: "打开监控页",
         refresh: "立即刷新",
-        baseURL: "服务地址", managementKey: "管理密钥", refreshIntervalSeconds: "刷新间隔（秒）",
+        platform: "主 Adapter",
+        adapters: "Adapters",
+        adapterName: "名称",
+        allAdapters: "总览",
+        baseURL: "服务地址", managementKey: "访问密钥", newApiUserID: "new-api 用户 ID", refreshIntervalSeconds: "刷新间隔（秒）",
         quit: "退出",
         total: "总量", input: "输入", output: "输出", reasoning: "推理",
         last15m: "15 分钟", tokenUnit: "tok", cacheUnit: "缓存", avg: "平均",
@@ -72,7 +81,11 @@ struct TextBundle {
         topApiKey: "Top API Key", updated: "Updated", settings: "Settings",
         checkForUpdates: "Check for Updates...",
         openMonitoring: "Open Monitoring Page", refresh: "Refresh Now",
-        baseURL: "Base URL", managementKey: "Management Key",
+        platform: "Primary Adapter",
+        adapters: "Adapters",
+        adapterName: "Name",
+        allAdapters: "All",
+        baseURL: "Base URL", managementKey: "Access Key", newApiUserID: "new-api User ID",
         refreshIntervalSeconds: "Refresh Interval (seconds)", quit: "Quit", total: "total", input: "in",
         output: "out", reasoning: "reasoning", last15m: "15m", tokenUnit: "tok",
         cacheUnit: "cache", avg: "avg", ttft: "TTFT", healthGood: "Healthy",

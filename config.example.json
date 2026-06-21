@@ -1,5 +1,40 @@
 {
-  "baseURL": "https://cpa.example.com",
+  "adapters": [
+    {
+      "id": "cliproxy-main",
+      "name": "CLIProxy Main",
+      "enabled": true,
+      "platform": "cliproxyapiPro",
+      "baseURL": "https://cliproxy.example.com",
+      "authHeaderName": "Authorization",
+      "managementKey": "replace-with-cliproxy-management-key",
+      "monitoringPath": "/management.html#/monitoring"
+    },
+    {
+      "id": "sub2api-main",
+      "name": "sub2api Main",
+      "enabled": true,
+      "platform": "sub2api",
+      "baseURL": "https://sub2api.example.com",
+      "authHeaderName": "x-api-key",
+      "managementKey": "replace-with-sub2api-admin-api-key",
+      "monitoringPath": "/admin/dashboard"
+    },
+    {
+      "id": "new-api-main",
+      "name": "new-api Main",
+      "enabled": true,
+      "platform": "newApi",
+      "baseURL": "https://new-api.example.com",
+      "authHeaderName": "Authorization",
+      "managementKey": "replace-with-new-api-access-token",
+      "newApiUserID": 1,
+      "monitoringPath": "/"
+    }
+  ],
+  "platform": "cliproxyapiPro",
+  "baseURL": "https://cliproxy.example.com",
+  "authHeaderName": "Authorization",
   "language": "en",
   "listItems": [
     "traffic",
@@ -12,7 +47,8 @@
     "topApiKey",
     "refreshedAt"
   ],
-  "managementKey": "replace-with-management-key",
+  "managementKey": "replace-with-cliproxy-management-key",
+  "newApiUserID": null,
   "refreshIntervalSeconds": 30,
   "display": "requests",
   "titleMetric": "requests",

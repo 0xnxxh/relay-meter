@@ -3,7 +3,9 @@ import Foundation
 final class ConfigStore {
     let url: URL
 
-    init(url: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/cpa-menubar/config.json")) {
+    init(
+        url: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/relay-meter/config.json")
+    ) {
         self.url = url
     }
 
@@ -15,8 +17,10 @@ final class ConfigStore {
         }
         let data = try Data(contentsOf: url)
         let config = try JSONDecoder().decode(AppConfig.self, from: data)
-        guard URL(string: config.baseURL) != nil else {
-            throw MonitorError.invalidBaseURL(config.baseURL)
+        for adapter in config.resolvedAdapters {
+            guard URL(string: adapter.baseURL) != nil else {
+                throw MonitorError.invalidBaseURL(adapter.baseURL)
+            }
         }
         return config
     }

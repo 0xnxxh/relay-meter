@@ -2,12 +2,12 @@
 set -euo pipefail
 
 MODE="${1:-run}"
-APP_NAME="CPA Menubar"
-PROCESS_NAME="CPA Menubar"
-PRODUCT_NAME="cpa-menubar"
-BUNDLE_ID="com.hoon.cpa-menubar"
+APP_NAME="Relay Meter"
+PROCESS_NAME="Relay Meter"
+PRODUCT_NAME="relay-meter"
+BUNDLE_ID="com.hoon.relay-meter"
 MIN_SYSTEM_VERSION="13.0"
-FEED_URL="https://github.com/0xnxxh/cpa-menubar/releases/latest/download/appcast.xml"
+FEED_URL="https://github.com/0xnxxh/relay-meter/releases/latest/download/appcast.xml"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/version.sh"
@@ -99,19 +99,19 @@ compile_release_binary() {
     -framework Sparkle \
     -Xlinker -rpath \
     -Xlinker "@executable_path/../Frameworks" \
-    "$ROOT_DIR/Sources/CPAMenubar/AppLogger.swift" \
-    "$ROOT_DIR/Sources/CPAMenubar/Models.swift" \
-    "$ROOT_DIR/Sources/CPAMenubar/Localization.swift" \
-    "$ROOT_DIR/Sources/CPAMenubar/ConfigStore.swift" \
-    "$ROOT_DIR/Sources/CPAMenubar/DebugSummary.swift" \
-    "$ROOT_DIR/Sources/CPAMenubar/UsageClient.swift" \
-    "$ROOT_DIR/Sources/CPAMenubar/MenuCardComponents.swift" \
-    "$ROOT_DIR/Sources/CPAMenubar/RankingMenuCardView.swift" \
-    "$ROOT_DIR/Sources/CPAMenubar/TrendMenuCardView.swift" \
-    "$ROOT_DIR/Sources/CPAMenubar/SnapshotMenuView.swift" \
-    "$ROOT_DIR/Sources/CPAMenubar/SettingsWindow.swift" \
-    "$ROOT_DIR/Sources/CPAMenubar/main.swift" \
-    "$ROOT_DIR/Sources/CPAMenubar/MenuDelegate.swift" \
+    "$ROOT_DIR/Sources/RelayMeter/AppLogger.swift" \
+    "$ROOT_DIR/Sources/RelayMeter/Models.swift" \
+    "$ROOT_DIR/Sources/RelayMeter/Localization.swift" \
+    "$ROOT_DIR/Sources/RelayMeter/ConfigStore.swift" \
+    "$ROOT_DIR/Sources/RelayMeter/DebugSummary.swift" \
+    "$ROOT_DIR/Sources/RelayMeter/UsageClient.swift" \
+    "$ROOT_DIR/Sources/RelayMeter/MenuCardComponents.swift" \
+    "$ROOT_DIR/Sources/RelayMeter/RankingMenuCardView.swift" \
+    "$ROOT_DIR/Sources/RelayMeter/TrendMenuCardView.swift" \
+    "$ROOT_DIR/Sources/RelayMeter/SnapshotMenuView.swift" \
+    "$ROOT_DIR/Sources/RelayMeter/SettingsWindow.swift" \
+    "$ROOT_DIR/Sources/RelayMeter/main.swift" \
+    "$ROOT_DIR/Sources/RelayMeter/MenuDelegate.swift" \
     -o "$RELEASE_BINARY"
   echo "$RELEASE_BINARY"
 }

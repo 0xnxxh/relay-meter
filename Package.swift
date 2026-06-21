@@ -2,17 +2,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "CPAMenubar",
+    name: "RelayMeter",
     platforms: [
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "cpa-menubar", targets: ["CPAMenubar"])
+        .executable(name: "relay-meter", targets: ["RelayMeter"])
     ],
     targets: [
         .executableTarget(
-            name: "CPAMenubar",
-            path: "Sources/CPAMenubar"
+            name: "RelayMeter",
+            path: "Sources/RelayMeter"
         )
     ]
 )

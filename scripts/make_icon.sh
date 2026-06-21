@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SVG="$ROOT_DIR/Resources/Logo/cpa-menubar-logo.svg"
+SVG="$ROOT_DIR/Resources/Logo/relay-meter-logo.svg"
 ICONSET="$ROOT_DIR/.build/icon/AppIcon.iconset"
 ICNS="$ROOT_DIR/Resources/AppIcon.icns"
 
@@ -26,7 +26,14 @@ make_png() {
   sips -s format png -z "$pixels" "$pixels" "$SVG" --out "$out" >/dev/null
 }
 
-make_png 16 1 ""
+if ! make_png 16 1 "" 2>/dev/null; then
+  if [[ -f "$ICNS" ]]; then
+    echo "$ICNS"
+    exit 0
+  fi
+  echo "failed to render $SVG and no existing icon is available" >&2
+  exit 1
+fi
 make_png 16 2 "@2x"
 make_png 32 1 ""
 make_png 32 2 "@2x"
