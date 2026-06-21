@@ -357,7 +357,11 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
 
     private func formatCompact(_ value: Int) -> String { MenuValueFormatter.compact(value) }
 
-    @objc private func openMonitoringPage() { if let url = config?.monitoringURL { NSWorkspace.shared.open(url) } }
+    @objc private func openMonitoringPage() {
+        for url in config?.monitoringURLs(for: selectedSnapshotSourceID) ?? [] {
+            NSWorkspace.shared.open(url)
+        }
+    }
 
     @objc private func checkForUpdates() {
         updaterController.checkForUpdates(nil)

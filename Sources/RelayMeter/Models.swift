@@ -84,6 +84,15 @@ struct AppConfig: Codable {
         primaryAdapter.monitoringURL
     }
 
+    func monitoringURLs(for sourceID: String) -> [URL] {
+        if sourceID == UsageDashboardSnapshot.aggregateSourceID {
+            return resolvedAdapters.compactMap(\.monitoringURL)
+        }
+        return resolvedAdapters
+            .filter { $0.resolvedID == sourceID }
+            .compactMap(\.monitoringURL)
+    }
+
     func scoped(to adapter: AdapterConfig) -> AppConfig {
         var scoped = self
         scoped.adapters = [adapter]

@@ -154,20 +154,44 @@ final class TrendChartView: NSView {
 
     private func drawSeries(values: [Int], color: NSColor) {
         let maxValue = max(values.max() ?? 0, 1)
-        let path = NSBezierPath()
-        for (index, value) in values.enumerated() {
-            let point = chartPoint(index: index, value: value, maxValue: maxValue)
-            if index == 0 {
-                path.move(to: point)
-            } else {
-                path.line(to: point)
-            }
+        let seriesPoints = values.enumerated().map { index, value in
+            chartPoint(index: index, value: value, maxValue: maxValue)
         }
+        let path = smoothPath(points: seriesPoints)
         color.withAlphaComponent(0.9).setStroke()
         path.lineWidth = 2
         path.lineJoinStyle = .round
         path.lineCapStyle = .round
         path.stroke()
+    }
+
+    private func smoothPath(points: [NSPoint]) -> NSBezierPath {
+        let path = NSBezierPath()
+        guard let first = points.first else { return path }
+        path.move(to: first)
+        guard points.count > 2 else {
+            for point in points.dropFirst() {
+                path.line(to: point)
+            }
+            return path
+        }
+
+        for index in 0..<(points.count - 1) {
+            let previous = index == 0 ? points[index] : points[index - 1]
+            let current = points[index]
+            let next = points[index + 1]
+            let following = index + 2 < points.count ? points[index + 2] : next
+            let firstControl = NSPoint(
+                x: current.x + (next.x - previous.x) / 6,
+                y: current.y + (next.y - previous.y) / 6
+            )
+            let secondControl = NSPoint(
+                x: next.x - (following.x - current.x) / 6,
+                y: next.y - (following.y - current.y) / 6
+            )
+            path.curve(to: next, controlPoint1: firstControl, controlPoint2: secondControl)
+        }
+        return path
     }
 
     private func drawSelection() {

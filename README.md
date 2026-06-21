@@ -61,7 +61,7 @@ The current app was originally built around [ssfun/CLIProxyAPI-Pro](https://gith
 
 - Open `Settings` from the menu bar to edit config.
 - Use the range tabs to switch between today, 7 days, 30 days, and all retained logs.
-- Use `Open Monitoring Page` to open the primary adapter's monitoring page.
+- Use `Open Monitoring Page` on `All` to open every enabled adapter's monitoring page, or on an adapter tab to open that adapter's page.
 - Use `Check for Updates...` to check GitHub Releases for a newer version.
 
 ### Logs
@@ -131,7 +131,7 @@ Relay Meter 已为这些项目提供独立 adapter：
 
 - 在菜单栏中打开 `设置` 修改配置。
 - 使用时间范围标签切换今天、7 天、30 天和全部日志。
-- 使用 `打开监控页` 打开主 adapter 的监控页面。
+- 在 `总览` 使用 `打开监控页` 会打开所有启用 adapter 的监控页面；在单个 adapter 标签使用时只打开该 adapter 的监控页面。
 - 使用 `检查更新...` 从 GitHub Releases 检查新版本。
 
 ### 日志
