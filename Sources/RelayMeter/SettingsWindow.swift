@@ -9,19 +9,20 @@ final class SettingsWindowController: NSWindowController {
         static let controlWidth: CGFloat = 300
         static let adapterKeyFieldWidth: CGFloat = 228
         static let adapterFieldWidth: CGFloat = 300
-        static let adapterTextFieldHeight: CGFloat = 30
-        static let adapterHeaderHeight: CGFloat = 40
+        static let adapterTextFieldHeight: CGFloat = 32
+        static let adapterHeaderHeight: CGFloat = 44
         static let adapterLabelWidth: CGFloat = 112
     }
 
     private var config: AppConfig
     private let onSave: (AppConfig) -> Void
+    private let onCheckForUpdates: () -> Void
     private var adapterControls: [AdapterConfigControls] = []
     private let adaptersStack = NSStackView()
-    private let refreshIntervalField = NSTextField()
-    private let languagePopup = NSPopUpButton()
-    private let titlePopup = NSPopUpButton()
-    private let rangePopup = NSPopUpButton()
+    private let refreshIntervalField = PixelTextField()
+    private let languagePopup = PixelPopupButton()
+    private let titlePopup = PixelPopupButton()
+    private let rangePopup = PixelPopupButton()
     private var itemButtons: [DisplayItem: NSButton] = [:]
     private weak var headerView: NSView?
     private weak var footerView: NSView?
@@ -33,9 +34,14 @@ final class SettingsWindowController: NSWindowController {
         TextBundle.forLanguage(config.resolvedLanguage)
     }
 
-    init(config: AppConfig, onSave: @escaping (AppConfig) -> Void) {
+    init(
+        config: AppConfig,
+        onSave: @escaping (AppConfig) -> Void,
+        onCheckForUpdates: @escaping () -> Void
+    ) {
         self.config = config
         self.onSave = onSave
+        self.onCheckForUpdates = onCheckForUpdates
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Layout.windowSize),
             styleMask: [.titled, .closable, .resizable],
@@ -44,6 +50,10 @@ final class SettingsWindowController: NSWindowController {
         )
         window.title = config.resolvedLanguage == .chinese ? "Relay Meter 设置" : "Relay Meter Settings"
         window.minSize = NSSize(width: Layout.windowWidth, height: 420)
+        window.titlebarAppearsTransparent = true
+        window.styleMask.insert(.fullSizeContentView)
+        window.backgroundColor = RelayTheme.background
+        window.isOpaque = false
         super.init(window: window)
         window.center()
         window.contentView = buildContentView()
@@ -73,7 +83,7 @@ final class SettingsWindowController: NSWindowController {
         root.addArrangedSubview(scrollView)
         root.addArrangedSubview(footer)
 
-        let container = NSView()
+        let container = RelayBackgroundView()
         container.addSubview(root)
         NSLayoutConstraint.activate([
             root.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -143,12 +153,12 @@ final class SettingsWindowController: NSWindowController {
         controls.enabledButton.target = self
         controls.enabledButton.action = #selector(adapterEnabledChanged(_:))
         controls.showKeyButton.title = config.resolvedLanguage == .chinese ? "显示" : "Show"
-        controls.showKeyButton.bezelStyle = .rounded
         controls.showKeyButton.target = self
         controls.showKeyButton.action = #selector(toggleAdapterKeyVisibility(_:))
         controls.showKeyButton.translatesAutoresizingMaskIntoConstraints = false
         controls.showKeyButton.widthAnchor.constraint(equalToConstant: 64).isActive = true
         controls.showKeyButton.heightAnchor.constraint(equalToConstant: Layout.adapterTextFieldHeight).isActive = true
+        RelayTheme.styleButton(controls.showKeyButton, tint: RelayTheme.cyan)
         return controls
     }
 
@@ -185,17 +195,21 @@ final class SettingsWindowController: NSWindowController {
     private func buildHeader() -> NSView {
         let stack = NSStackView()
         stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 4
-        stack.edgeInsets = NSEdgeInsets(top: 22, left: 28, bottom: 16, right: 28)
+        stack.alignment = .centerX
+        stack.spacing = 6
+        stack.edgeInsets = NSEdgeInsets(top: 34, left: 28, bottom: 18, right: 28)
+        stack.wantsLayer = true
+        stack.layer?.backgroundColor = RelayTheme.background.cgColor
 
-        let title = label(config.resolvedLanguage == .chinese ? "设置" : "Settings", size: 20, weight: .semibold)
+        let title = label(config.resolvedLanguage == .chinese ? "设置" : "Settings", size: 20, weight: .black, color: RelayTheme.accent)
+        title.alignment = .center
         let subtitle = label(
             config.resolvedLanguage == .chinese ? "分别配置 adapter、菜单栏显示和监控卡片。" : "Configure adapters, menu bar display, and monitoring cards.",
             size: 12,
-            weight: .regular,
-            color: .secondaryLabelColor
+            weight: .bold,
+            color: RelayTheme.muted
         )
+        subtitle.alignment = .center
         stack.addArrangedSubview(title)
         stack.addArrangedSubview(subtitle)
         return stack
@@ -291,9 +305,7 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func buildFooter() -> NSView {
-        let footer = NSVisualEffectView()
-        footer.material = .headerView
-        footer.blendingMode = .withinWindow
+        let footer = RelayBackgroundView()
 
         let actions = NSStackView()
         actions.orientation = .horizontal
@@ -301,10 +313,22 @@ final class SettingsWindowController: NSWindowController {
         actions.spacing = 10
         actions.translatesAutoresizingMaskIntoConstraints = false
 
+        let updateButton = NSButton(title: texts.checkForUpdates, target: self, action: #selector(checkForUpdates))
         let cancelButton = NSButton(title: config.resolvedLanguage == .chinese ? "取消" : "Cancel", target: self, action: #selector(cancel))
         let saveButton = NSButton(title: config.resolvedLanguage == .chinese ? "保存" : "Save", target: self, action: #selector(save))
         saveButton.keyEquivalent = "\r"
+        for button in [updateButton, cancelButton, saveButton] {
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        }
+        updateButton.widthAnchor.constraint(equalToConstant: 128).isActive = true
+        cancelButton.widthAnchor.constraint(equalToConstant: 58).isActive = true
+        saveButton.widthAnchor.constraint(equalToConstant: 58).isActive = true
+        RelayTheme.styleButton(updateButton, tint: RelayTheme.cyan, fontSize: 11)
+        RelayTheme.styleButton(cancelButton, tint: RelayTheme.muted, fontSize: 11)
+        RelayTheme.styleButton(saveButton, tint: RelayTheme.accent, fontSize: 11)
 
+        actions.addArrangedSubview(updateButton)
         actions.addArrangedSubview(NSView())
         actions.addArrangedSubview(cancelButton)
         actions.addArrangedSubview(saveButton)
@@ -333,7 +357,7 @@ final class SettingsWindowController: NSWindowController {
         stack.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(stack)
 
-        stack.addArrangedSubview(label(title, size: 13, weight: .semibold))
+        stack.addArrangedSubview(label(title.uppercased(), size: 13, weight: .bold, color: RelayTheme.accent))
         for row in rows {
             stack.addArrangedSubview(row)
         }
@@ -354,7 +378,7 @@ final class SettingsWindowController: NSWindowController {
         row.alignment = .centerY
         row.spacing = 12
 
-        let titleLabel = label(title, size: 12, weight: .medium, color: .secondaryLabelColor)
+        let titleLabel = label(title, size: 12, weight: .bold, color: RelayTheme.muted)
         titleLabel.widthAnchor.constraint(equalToConstant: Layout.labelWidth).isActive = true
         row.addArrangedSubview(titleLabel)
         row.addArrangedSubview(control)
@@ -458,9 +482,10 @@ final class SettingsWindowController: NSWindowController {
 
     private func addAdapterButton() -> NSView {
         let button = NSButton(title: config.resolvedLanguage == .chinese ? "添加 Adapter" : "Add Adapter", target: self, action: #selector(addAdapter))
-        button.bezelStyle = .rounded
         button.translatesAutoresizingMaskIntoConstraints = false
         button.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        button.widthAnchor.constraint(equalToConstant: 168).isActive = true
+        RelayTheme.styleButton(button, tint: RelayTheme.up, fontSize: 11)
 
         let row = NSStackView()
         row.orientation = .horizontal
@@ -472,9 +497,12 @@ final class SettingsWindowController: NSWindowController {
 
     private func deleteAdapterButton(_ controls: AdapterConfigControls) -> NSButton {
         let button = NSButton(title: config.resolvedLanguage == .chinese ? "删除" : "Delete", target: self, action: #selector(deleteAdapter(_:)))
-        button.bezelStyle = .rounded
         button.tag = adapterControls.firstIndex { $0 === controls } ?? -1
         button.isEnabled = adapterControls.count > 1
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.widthAnchor.constraint(equalToConstant: 58).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        RelayTheme.styleButton(button, tint: RelayTheme.down, fontSize: 11)
         return button
     }
 
@@ -514,7 +542,7 @@ final class SettingsWindowController: NSWindowController {
         row.spacing = 10
         row.translatesAutoresizingMaskIntoConstraints = false
         row.heightAnchor.constraint(greaterThanOrEqualToConstant: Layout.adapterTextFieldHeight).isActive = true
-        let titleLabel = label(title, size: 12, weight: .medium, color: .secondaryLabelColor)
+        let titleLabel = label(title, size: 12, weight: .bold, color: RelayTheme.muted)
         titleLabel.widthAnchor.constraint(equalToConstant: Layout.adapterLabelWidth).isActive = true
         row.addArrangedSubview(titleLabel)
         row.addArrangedSubview(control)
@@ -524,7 +552,8 @@ final class SettingsWindowController: NSWindowController {
     private func checkbox(for item: DisplayItem, enabledItems: Set<DisplayItem>) -> NSButton {
         let button = NSButton(checkboxWithTitle: itemLabel(item), target: nil, action: nil)
         button.state = enabledItems.contains(item) ? .on : .off
-        button.font = .systemFont(ofSize: 12)
+        button.font = RelayTheme.font(size: 12, weight: .bold)
+        button.contentTintColor = RelayTheme.accent
         button.lineBreakMode = .byTruncatingTail
         itemButtons[item] = button
         return button
@@ -534,29 +563,34 @@ final class SettingsWindowController: NSWindowController {
         let text = config.resolvedLanguage == .chinese
             ? "启用的 adapter 会并发刷新；单个 adapter 失败不会阻止其他 adapter 展示。"
             : "Enabled adapters refresh in parallel; one failed adapter does not block the others."
-        let hint = label(text, size: 11, weight: .regular, color: .tertiaryLabelColor)
+        let hint = label(text, size: 11, weight: .bold, color: RelayTheme.muted)
         hint.maximumNumberOfLines = 2
         hint.lineBreakMode = .byTruncatingTail
         hint.widthAnchor.constraint(equalToConstant: Layout.contentWidth - 32).isActive = true
         return hint
     }
 
-    private func configurePopup(_ popup: NSPopUpButton, items: [(String, String)], selected: String) {
+    private func configurePopup(_ popup: PixelPopupButton, items: [(String, String)], selected: String) {
         popup.removeAllItems()
         for item in items {
-            popup.addItem(withTitle: item.1)
-            popup.lastItem?.representedObject = item.0
+            popup.addItem(title: item.1, representedObject: item.0)
         }
         popup.translatesAutoresizingMaskIntoConstraints = false
         popup.widthAnchor.constraint(equalToConstant: Layout.controlWidth).isActive = true
-        if let menuItem = popup.itemArray.first(where: { ($0.representedObject as? String) == selected }) {
-            popup.select(menuItem)
-        }
+        popup.heightAnchor.constraint(equalToConstant: Layout.adapterTextFieldHeight).isActive = true
+        popup.selectRepresentedObject(selected)
+        popup.applyPixelStyle()
     }
 
     private func configureField(_ field: NSTextField, value: String, constrainWidth: Bool = true) {
         field.stringValue = value
-        field.font = .systemFont(ofSize: 13)
+        RelayTheme.styleField(field)
+        field.isEditable = true
+        field.isSelectable = true
+        field.isEnabled = true
+        field.refusesFirstResponder = false
+        field.cell?.isEditable = true
+        field.cell?.isSelectable = true
         field.controlSize = .regular
         field.usesSingleLineMode = true
         field.cell?.wraps = false
@@ -564,14 +598,15 @@ final class SettingsWindowController: NSWindowController {
         field.lineBreakMode = .byTruncatingTail
         field.translatesAutoresizingMaskIntoConstraints = false
         field.heightAnchor.constraint(equalToConstant: Layout.adapterTextFieldHeight).isActive = true
+        field.cell?.controlSize = .regular
         if constrainWidth {
             field.widthAnchor.constraint(equalToConstant: Layout.controlWidth).isActive = true
         }
     }
 
-    private func label(_ text: String, size: CGFloat, weight: NSFont.Weight, color: NSColor = .labelColor) -> NSTextField {
+    private func label(_ text: String, size: CGFloat, weight: NSFont.Weight, color: NSColor = RelayTheme.text) -> NSTextField {
         let field = NSTextField(labelWithString: text)
-        field.font = .systemFont(ofSize: size, weight: weight)
+        field.font = RelayTheme.font(size: size, weight: weight)
         field.textColor = color
         field.lineBreakMode = .byTruncatingTail
         return field
@@ -658,8 +693,12 @@ final class SettingsWindowController: NSWindowController {
         close()
     }
 
-    private func selectedValue(_ popup: NSPopUpButton) -> String {
-        popup.selectedItem?.representedObject as? String ?? ""
+    @objc private func checkForUpdates() {
+        onCheckForUpdates()
+    }
+
+    private func selectedValue(_ popup: PixelPopupButton) -> String {
+        popup.selectedRepresentedObject as? String ?? ""
     }
 
     private func currentKey(_ controls: AdapterConfigControls) -> String {
@@ -679,6 +718,7 @@ final class SettingsWindowController: NSWindowController {
         controls.visibleKeyField.isEnabled = enabled
         controls.userIDField.isEnabled = enabled
         controls.showKeyButton.isEnabled = enabled
+        controls.showKeyButton.alphaValue = enabled ? 1 : 0.45
     }
 
     @objc private func toggleAdapterKeyVisibility(_ sender: NSButton) {
@@ -694,9 +734,10 @@ final class SettingsWindowController: NSWindowController {
         controls.showKeyButton.title = controls.isKeyVisible
             ? (config.resolvedLanguage == .chinese ? "隐藏" : "Hide")
             : (config.resolvedLanguage == .chinese ? "显示" : "Show")
+        RelayTheme.styleButton(controls.showKeyButton, tint: RelayTheme.cyan)
     }
 
-    @objc private func adapterPlatformChanged(_ sender: NSPopUpButton) {
+    @objc private func adapterPlatformChanged(_ sender: PixelPopupButton) {
         guard let controls = adapterControls.first(where: { $0.platformPopup === sender }) else { return }
         let platform = controls.selectedPlatform
         controls.userIDRow?.isHidden = platform != .newApi
@@ -725,13 +766,13 @@ private final class AdapterConfigControls {
     let adapterID: String
     var monitoringPath: String?
     let enabledButton = NSButton(checkboxWithTitle: "", target: nil, action: nil)
-    let platformPopup = NSPopUpButton()
-    let nameField = NSTextField()
-    let baseURLField = NSTextField()
-    let keyField = NSSecureTextField()
-    let visibleKeyField = NSTextField()
+    let platformPopup = PixelPopupButton()
+    let nameField = PixelTextField()
+    let baseURLField = PixelTextField()
+    let keyField = PixelSecureField()
+    let visibleKeyField = PixelTextField()
     let showKeyButton = NSButton()
-    let userIDField = NSTextField()
+    let userIDField = PixelTextField()
     weak var userIDRow: NSView?
     weak var fieldsContainer: NSView?
     var isKeyVisible = false
@@ -743,7 +784,7 @@ private final class AdapterConfigControls {
 
     var selectedPlatform: MonitorPlatform {
         guard
-            let rawValue = platformPopup.selectedItem?.representedObject as? String,
+            let rawValue = platformPopup.selectedRepresentedObject as? String,
             let platform = MonitorPlatform(rawValue: rawValue)
         else {
             return .cliproxyapiPro
@@ -760,6 +801,279 @@ private final class AdapterConfigControls {
     }
 }
 
+private final class PixelTextField: NSTextField {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        cell = PixelTextFieldCell(textCell: "")
+        isEditable = true
+        isSelectable = true
+        refusesFirstResponder = false
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        RelayTheme.background.setFill()
+        bounds.fill()
+        super.draw(dirtyRect)
+        RelayTheme.line.withAlphaComponent(0.85).setStroke()
+        NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5)).stroke()
+    }
+
+}
+
+private final class PixelSecureField: NSSecureTextField {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        cell = PixelSecureTextFieldCell(textCell: "")
+        isEditable = true
+        isSelectable = true
+        refusesFirstResponder = false
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        RelayTheme.background.setFill()
+        bounds.fill()
+        super.draw(dirtyRect)
+        RelayTheme.line.withAlphaComponent(0.85).setStroke()
+        NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5)).stroke()
+    }
+}
+
+private class VerticallyCenteredTextFieldCell: NSTextFieldCell {
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        let textSize = cellSize(forBounds: rect)
+        let y = rect.origin.y + max(0, (rect.height - textSize.height) / 2)
+        return NSRect(x: rect.origin.x + 7, y: y, width: rect.width - 14, height: textSize.height)
+    }
+
+    override func edit(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, event: NSEvent?) {
+        super.edit(withFrame: drawingRect(forBounds: rect), in: controlView, editor: textObj, delegate: delegate, event: event)
+    }
+
+    override func select(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
+        super.select(withFrame: drawingRect(forBounds: rect), in: controlView, editor: textObj, delegate: delegate, start: selStart, length: selLength)
+    }
+}
+
+private final class PixelTextFieldCell: VerticallyCenteredTextFieldCell {}
+
+private final class PixelSecureTextFieldCell: NSSecureTextFieldCell {
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        let textSize = cellSize(forBounds: rect)
+        let y = rect.origin.y + max(0, (rect.height - textSize.height) / 2)
+        return NSRect(x: rect.origin.x + 7, y: y, width: rect.width - 14, height: textSize.height)
+    }
+
+    override func edit(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, event: NSEvent?) {
+        super.edit(withFrame: drawingRect(forBounds: rect), in: controlView, editor: textObj, delegate: delegate, event: event)
+    }
+
+    override func select(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
+        super.select(withFrame: drawingRect(forBounds: rect), in: controlView, editor: textObj, delegate: delegate, start: selStart, length: selLength)
+    }
+}
+
+private final class PixelPopupButton: NSButton {
+    struct Item {
+        let title: String
+        let representedObject: Any?
+    }
+
+    private var items: [Item] = []
+    private var selectedIndex = 0
+    private var popupWindow: NSWindow?
+    private var localClickMonitor: Any?
+    private var globalClickMonitor: Any?
+
+    var selectedRepresentedObject: Any? {
+        guard items.indices.contains(selectedIndex) else { return nil }
+        return items[selectedIndex].representedObject
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        applyPixelStyle()
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    deinit {
+        removeClickMonitors()
+    }
+
+    func removeAllItems() {
+        items.removeAll()
+        selectedIndex = 0
+        title = ""
+    }
+
+    func addItem(title: String, representedObject: Any?) {
+        items.append(Item(title: title, representedObject: representedObject))
+        if items.count == 1 {
+            selectIndex(0, sendAction: false)
+        }
+    }
+
+    func selectRepresentedObject(_ value: String) {
+        if let index = items.firstIndex(where: { ($0.representedObject as? String) == value }) {
+            selectIndex(index, sendAction: false)
+        }
+    }
+
+    func applyPixelStyle() {
+        isBordered = false
+        font = RelayTheme.font(size: 12, weight: .bold)
+        contentTintColor = RelayTheme.text
+        wantsLayer = true
+        layer?.cornerRadius = 0
+        layer?.borderWidth = 1
+        layer?.borderColor = RelayTheme.line.cgColor
+        layer?.backgroundColor = RelayTheme.background.cgColor
+        alignment = .left
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        RelayTheme.background.setFill()
+        bounds.fill()
+        super.draw(dirtyRect)
+        RelayTheme.line.setStroke()
+        NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5)).stroke()
+        drawChevron()
+    }
+
+    private func selectIndex(_ index: Int, sendAction: Bool) {
+        guard items.indices.contains(index) else { return }
+        selectedIndex = index
+        attributedTitle = NSAttributedString(
+            string: "  \(items[index].title)",
+            attributes: [.foregroundColor: RelayTheme.text, .font: RelayTheme.font(size: 12, weight: .bold)]
+        )
+        needsDisplay = true
+        if sendAction, let target, let action {
+            NSApp.sendAction(action, to: target, from: self)
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        togglePopup()
+    }
+
+    private func togglePopup() {
+        popupWindow == nil ? showPopup() : closePopup()
+    }
+
+    private func showPopup() {
+        guard let window, !items.isEmpty else { return }
+        let rowHeight: CGFloat = 34
+        let width = bounds.width
+        let height = rowHeight * CGFloat(items.count)
+        let screenRect = window.convertToScreen(convert(bounds, to: nil))
+        let content = RelayBackgroundView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        var previous: NSView?
+        for (index, item) in items.enumerated() {
+            let button = NSButton(title: item.title, target: self, action: #selector(selectPopupItem(_:)))
+            button.tag = index
+            button.translatesAutoresizingMaskIntoConstraints = false
+            RelayTheme.styleButton(button, tint: index == selectedIndex ? RelayTheme.accent : RelayTheme.line, isSelected: index == selectedIndex, fontSize: 12)
+            content.addSubview(button)
+            NSLayoutConstraint.activate([
+                button.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+                button.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+                button.heightAnchor.constraint(equalToConstant: rowHeight)
+            ])
+            if let previous {
+                button.topAnchor.constraint(equalTo: previous.bottomAnchor).isActive = true
+            } else {
+                button.topAnchor.constraint(equalTo: content.topAnchor).isActive = true
+            }
+            previous = button
+        }
+
+        let popup = NSWindow(
+            contentRect: NSRect(x: screenRect.minX, y: screenRect.minY - height, width: width, height: height),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        popup.contentView = content
+        popup.backgroundColor = .clear
+        popup.isOpaque = false
+        popup.hasShadow = true
+        popup.level = .popUpMenu
+        popup.orderFront(nil)
+        popupWindow = popup
+        installClickMonitors()
+    }
+
+    @objc private func selectPopupItem(_ sender: NSButton) {
+        selectIndex(sender.tag, sendAction: true)
+        closePopup()
+    }
+
+    private func closePopup() {
+        popupWindow?.orderOut(nil)
+        popupWindow = nil
+        removeClickMonitors()
+    }
+
+    private func installClickMonitors() {
+        removeClickMonitors()
+        localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self else { return event }
+            if !self.eventHitsPopupOrButton(event) {
+                self.closePopup()
+            }
+            return event
+        }
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            DispatchQueue.main.async { self?.closePopup() }
+        }
+    }
+
+    private func removeClickMonitors() {
+        if let localClickMonitor {
+            NSEvent.removeMonitor(localClickMonitor)
+            self.localClickMonitor = nil
+        }
+        if let globalClickMonitor {
+            NSEvent.removeMonitor(globalClickMonitor)
+            self.globalClickMonitor = nil
+        }
+    }
+
+    private func eventHitsPopupOrButton(_ event: NSEvent) -> Bool {
+        if event.window === window {
+            let point = convert(event.locationInWindow, from: nil)
+            return bounds.contains(point)
+        }
+        if event.window === popupWindow {
+            return true
+        }
+        return false
+    }
+
+    private func drawChevron() {
+        RelayTheme.text.setStroke()
+        let path = NSBezierPath()
+        let midX = bounds.maxX - 18
+        let midY = bounds.midY
+        path.move(to: NSPoint(x: midX - 4, y: midY + 2))
+        path.line(to: NSPoint(x: midX, y: midY - 2))
+        path.line(to: NSPoint(x: midX + 4, y: midY + 2))
+        path.lineWidth = 2
+        path.stroke()
+    }
+}
+
 private final class SettingsSectionPanelView: NSView {
     weak var contentStack: NSStackView?
 
@@ -771,11 +1085,10 @@ private final class SettingsSectionPanelView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.cornerRadius = 10
-        layer?.cornerCurve = .continuous
+        layer?.cornerRadius = 0
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.55).cgColor
-        layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.35).cgColor
+        layer?.borderColor = RelayTheme.line.cgColor
+        layer?.backgroundColor = RelayTheme.raised.cgColor
     }
 
     required init?(coder: NSCoder) {
@@ -794,11 +1107,10 @@ private final class AdapterPanelView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.cornerRadius = 8
-        layer?.cornerCurve = .continuous
+        layer?.cornerRadius = 0
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.45).cgColor
-        layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.22).cgColor
+        layer?.borderColor = RelayTheme.line.withAlphaComponent(0.75).cgColor
+        layer?.backgroundColor = RelayTheme.background.cgColor
     }
 
     required init?(coder: NSCoder) {

@@ -8,8 +8,8 @@ final class TrendMenuCardView: RoundedPanelView {
     init(points: [UsageTrendPoint], texts: TextBundle) {
         self.points = points
         self.texts = texts
-        self.selectedLabel = menuLabel("", size: 10, weight: .regular, color: .secondaryLabelColor)
-        super.init(accentColor: .systemIndigo, fillAlpha: 0.045)
+        self.selectedLabel = menuLabel("", size: 10, weight: .bold, color: RelayTheme.muted)
+        super.init(accentColor: RelayTheme.line, fillAlpha: 0.92)
         selectedLabel.stringValue = valueText(points.last)
         build()
     }
@@ -33,7 +33,7 @@ final class TrendMenuCardView: RoundedPanelView {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
         ])
 
-        stack.addArrangedSubview(menuIconTitle(texts.trend, accent: .systemIndigo))
+        stack.addArrangedSubview(menuIconTitle(texts.trend, accent: RelayTheme.accent))
         let chart = TrendChartView(points: points) { [weak self] point in
             self?.selectedLabel.stringValue = self?.valueText(point) ?? "--"
         }
@@ -59,14 +59,14 @@ final class TrendMenuCardView: RoundedPanelView {
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 10
-        row.addArrangedSubview(legendItem(texts.requests, color: .systemBlue))
-        row.addArrangedSubview(legendItem(texts.tokens, color: .systemPurple))
+        row.addArrangedSubview(legendItem(texts.requests, color: RelayTheme.cyan))
+        row.addArrangedSubview(legendItem(texts.tokens, color: RelayTheme.accent))
         return row
     }
 
     private func valueText(_ point: UsageTrendPoint?) -> String {
         guard let point else { return "--" }
-        return "\(point.label)  \(MenuValueFormatter.number(point.requests)) req  \(MenuValueFormatter.compact(point.tokens)) Token  \(MenuValueFormatter.number(point.failures)) err"
+        return "\(point.label)  \(MenuValueFormatter.number(point.requests)) REQ  \(MenuValueFormatter.compact(point.tokens)) TOKEN  \(MenuValueFormatter.number(point.failures)) ERR"
     }
 
     private func legendItem(_ title: String, color: NSColor) -> NSView {
@@ -76,10 +76,10 @@ final class TrendMenuCardView: RoundedPanelView {
         row.spacing = 4
         let dot = StatusDotView(color: color)
         dot.translatesAutoresizingMaskIntoConstraints = false
-        dot.widthAnchor.constraint(equalToConstant: 7).isActive = true
-        dot.heightAnchor.constraint(equalToConstant: 7).isActive = true
+        dot.widthAnchor.constraint(equalToConstant: 11).isActive = true
+        dot.heightAnchor.constraint(equalToConstant: 11).isActive = true
         row.addArrangedSubview(dot)
-        row.addArrangedSubview(menuLabel(title, size: 10, weight: .regular, color: .secondaryLabelColor))
+        row.addArrangedSubview(menuLabel(title.uppercased(), size: 10, weight: .bold, color: RelayTheme.muted))
         return row
     }
 }
@@ -103,13 +103,15 @@ final class TrendChartView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        RelayTheme.raised.setFill()
+        bounds.fill()
         drawGrid()
         guard points.count >= 2 else {
             drawEmpty()
             return
         }
-        drawSeries(values: points.map(\.tokens), color: .systemPurple)
-        drawSeries(values: points.map(\.requests), color: .systemBlue)
+        drawSeries(values: points.map(\.tokens), color: RelayTheme.accent)
+        drawSeries(values: points.map(\.requests), color: RelayTheme.cyan)
         drawSelection()
     }
 
@@ -141,7 +143,7 @@ final class TrendChartView: NSView {
     }
 
     private func drawGrid() {
-        NSColor.separatorColor.withAlphaComponent(0.25).setStroke()
+        RelayTheme.line.withAlphaComponent(0.35).setStroke()
         for index in 0..<4 {
             let y = bounds.minY + CGFloat(index) * bounds.height / 3
             let path = NSBezierPath()
@@ -158,10 +160,10 @@ final class TrendChartView: NSView {
             chartPoint(index: index, value: value, maxValue: maxValue)
         }
         let path = smoothPath(points: seriesPoints)
-        color.withAlphaComponent(0.9).setStroke()
-        path.lineWidth = 2
-        path.lineJoinStyle = .round
-        path.lineCapStyle = .round
+        color.withAlphaComponent(0.95).setStroke()
+        path.lineWidth = 1.5
+        path.lineJoinStyle = .miter
+        path.lineCapStyle = .butt
         path.stroke()
     }
 
@@ -200,14 +202,14 @@ final class TrendChartView: NSView {
         let maxRequests = max(points.map(\.requests).max() ?? 0, 1)
         let tokenPoint = chartPoint(index: selectedIndex, value: points[selectedIndex].tokens, maxValue: maxTokens)
         let requestPoint = chartPoint(index: selectedIndex, value: points[selectedIndex].requests, maxValue: maxRequests)
-        NSColor.labelColor.withAlphaComponent(0.35).setStroke()
+        RelayTheme.text.withAlphaComponent(0.35).setStroke()
         let guide = NSBezierPath()
         guide.move(to: NSPoint(x: tokenPoint.x, y: bounds.minY))
         guide.line(to: NSPoint(x: tokenPoint.x, y: bounds.maxY))
         guide.lineWidth = 1
         guide.stroke()
-        drawPoint(tokenPoint, color: .systemPurple)
-        drawPoint(requestPoint, color: .systemBlue)
+        drawPoint(tokenPoint, color: RelayTheme.accent)
+        drawPoint(requestPoint, color: RelayTheme.cyan)
     }
 
     private func chartPoint(index: Int, value: Int, maxValue: Int) -> NSPoint {
@@ -218,7 +220,7 @@ final class TrendChartView: NSView {
 
     private func drawPoint(_ point: NSPoint, color: NSColor) {
         color.setFill()
-        NSBezierPath(ovalIn: NSRect(x: point.x - 3, y: point.y - 3, width: 6, height: 6)).fill()
+        NSBezierPath(rect: NSRect(x: point.x - 3, y: point.y - 3, width: 6, height: 6)).fill()
     }
 
     private func drawEmpty() {
@@ -226,8 +228,8 @@ final class TrendChartView: NSView {
         text.draw(
             at: NSPoint(x: bounds.midX - 8, y: bounds.midY - 7),
             withAttributes: [
-                .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
-                .foregroundColor: NSColor.tertiaryLabelColor
+                .font: RelayTheme.font(size: 12, weight: .bold),
+                .foregroundColor: RelayTheme.muted
             ]
         )
     }

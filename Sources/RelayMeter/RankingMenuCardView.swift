@@ -2,7 +2,7 @@ import AppKit
 
 final class RankingMenuCardView: RoundedPanelView {
     init(snapshot: UsageSnapshot, enabled: Set<DisplayItem>, texts: TextBundle) {
-        super.init(accentColor: .systemTeal, fillAlpha: 0.045)
+        super.init(accentColor: RelayTheme.line, fillAlpha: 0.92)
         build(snapshot: snapshot, enabled: enabled, texts: texts)
     }
 
@@ -25,7 +25,7 @@ final class RankingMenuCardView: RoundedPanelView {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
         ])
 
-        stack.addArrangedSubview(menuIconTitle(cardTitle(enabled: enabled, texts: texts), accent: .systemTeal))
+        stack.addArrangedSubview(menuIconTitle(cardTitle(enabled: enabled, texts: texts), accent: RelayTheme.cyan))
         let content = NSStackView()
         content.orientation = .horizontal
         content.alignment = .top
@@ -54,10 +54,10 @@ final class RankingMenuCardView: RoundedPanelView {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 3
-        stack.addArrangedSubview(menuLabel(title, size: 10, weight: .semibold, color: .secondaryLabelColor))
+        stack.addArrangedSubview(menuLabel(title.uppercased(), size: 10, weight: .bold, color: RelayTheme.muted))
 
         guard !rows.isEmpty else {
-            stack.addArrangedSubview(menuLabel("--", size: 11, weight: .regular, color: .tertiaryLabelColor))
+            stack.addArrangedSubview(menuLabel("--", size: 11, weight: .bold, color: RelayTheme.muted))
             return stack
         }
 
@@ -71,12 +71,12 @@ final class RankingMenuCardView: RoundedPanelView {
             nameRow.orientation = .horizontal
             nameRow.alignment = .firstBaseline
             nameRow.spacing = 5
-            nameRow.addArrangedSubview(menuLabel("#\(index + 1)", size: 10, weight: .semibold, color: .tertiaryLabelColor))
-            let name = menuLabel(row.label, size: 12, weight: .semibold, color: .labelColor)
+            nameRow.addArrangedSubview(menuLabel("#\(index + 1)", size: 10, weight: .bold, color: RelayTheme.accent))
+            let name = menuLabel(row.label, size: 12, weight: .bold, color: RelayTheme.text)
             name.lineBreakMode = .byTruncatingMiddle
             nameRow.addArrangedSubview(name)
             item.addArrangedSubview(nameRow)
-            item.addArrangedSubview(menuLabel("\(MenuValueFormatter.number(row.requests)) req / \(MenuValueFormatter.percent(row.successRate))", size: 10, weight: .regular, color: .secondaryLabelColor))
+            item.addArrangedSubview(menuLabel("\(MenuValueFormatter.number(row.requests)) REQ / \(MenuValueFormatter.percent(row.successRate))", size: 10, weight: .bold, color: RelayTheme.muted))
             stack.addArrangedSubview(item)
         }
         return stack

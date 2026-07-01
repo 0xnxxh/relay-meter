@@ -4,11 +4,10 @@ class RoundedPanelView: NSView {
     init(accentColor: NSColor, fillAlpha: CGFloat) {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 8
-        layer?.cornerCurve = .continuous
+        layer?.cornerRadius = 0
         layer?.borderWidth = 1
-        layer?.borderColor = accentColor.withAlphaComponent(0.18).cgColor
-        layer?.backgroundColor = accentColor.withAlphaComponent(fillAlpha).cgColor
+        layer?.borderColor = accentColor.cgColor
+        layer?.backgroundColor = RelayTheme.raised.withAlphaComponent(max(fillAlpha, 0.92)).cgColor
     }
 
     required init?(coder: NSCoder) {
@@ -17,25 +16,37 @@ class RoundedPanelView: NSView {
 }
 
 final class StatusDotView: NSView {
+    private let color: NSColor
+
     init(color: NSColor) {
+        self.color = color
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 5
-        layer?.backgroundColor = color.cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
     }
 
     required init?(coder: NSCoder) {
         nil
     }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        color.setFill()
+        let cell: CGFloat = max(2, floor(min(bounds.width, bounds.height) / 3.8))
+        let gap: CGFloat = max(1, floor(cell / 3))
+        let cells = [1, 2, 3, 5, 7, 9, 10, 11]
+        for index in cells {
+            let row = index / 3
+            let column = index % 3
+            let x = bounds.minX + CGFloat(column) * (cell + gap)
+            let y = bounds.maxY - CGFloat(row + 1) * cell - CGFloat(row) * gap
+            NSBezierPath(rect: NSRect(x: x, y: y, width: cell, height: cell)).fill()
+        }
+    }
 }
 
 func menuHealthColor(_ health: HealthState) -> NSColor {
-    switch health {
-    case .good: return .systemGreen
-    case .idle: return .systemGray
-    case .warn: return .systemOrange
-    case .bad: return .systemRed
-    }
+    RelayTheme.healthColor(health)
 }
 
 enum MenuValueFormatter {
@@ -78,16 +89,16 @@ func menuIconTitle(_ title: String, accent: NSColor) -> NSView {
     row.spacing = 7
     let icon = StatusDotView(color: accent)
     icon.translatesAutoresizingMaskIntoConstraints = false
-    icon.widthAnchor.constraint(equalToConstant: 8).isActive = true
-    icon.heightAnchor.constraint(equalToConstant: 8).isActive = true
+    icon.widthAnchor.constraint(equalToConstant: 13).isActive = true
+    icon.heightAnchor.constraint(equalToConstant: 13).isActive = true
     row.addArrangedSubview(icon)
-    row.addArrangedSubview(menuLabel(title, size: 12, weight: .semibold, color: .labelColor))
+    row.addArrangedSubview(menuLabel(title.uppercased(), size: 12, weight: .bold, color: RelayTheme.accent))
     return row
 }
 
 func menuLabel(_ text: String, size: CGFloat, weight: NSFont.Weight, color: NSColor) -> NSTextField {
     let field = NSTextField(labelWithString: text)
-    field.font = .systemFont(ofSize: size, weight: weight)
+    field.font = RelayTheme.font(size: size, weight: weight)
     field.textColor = color
     field.maximumNumberOfLines = 1
     field.lineBreakMode = .byTruncatingTail

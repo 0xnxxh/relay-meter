@@ -105,6 +105,7 @@ compile_release_binary() {
     "$ROOT_DIR/Sources/RelayMeter/ConfigStore.swift" \
     "$ROOT_DIR/Sources/RelayMeter/DebugSummary.swift" \
     "$ROOT_DIR/Sources/RelayMeter/UsageClient.swift" \
+    "$ROOT_DIR/Sources/RelayMeter/RelayTheme.swift" \
     "$ROOT_DIR/Sources/RelayMeter/MenuCardComponents.swift" \
     "$ROOT_DIR/Sources/RelayMeter/RankingMenuCardView.swift" \
     "$ROOT_DIR/Sources/RelayMeter/TrendMenuCardView.swift" \

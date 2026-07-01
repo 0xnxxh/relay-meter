@@ -22,6 +22,7 @@ final class SnapshotMenuView: NSView {
         self.onRefresh = onRefresh
         self.onOpenMonitoring = onOpenMonitoring
         super.init(frame: NSRect(x: 0, y: 0, width: contentWidth, height: 1))
+        RelayTheme.applyWindowBackground(to: self)
         build(snapshot: snapshot, config: config, texts: texts)
     }
 
@@ -40,6 +41,7 @@ final class SnapshotMenuView: NSView {
         self.onRefresh = onRefresh
         self.onOpenMonitoring = onOpenMonitoring
         super.init(frame: NSRect(x: 0, y: 0, width: contentWidth, height: 1))
+        RelayTheme.applyWindowBackground(to: self)
         build(dashboard: dashboard, selectedSourceID: selectedSourceID, config: config, texts: texts)
     }
 
@@ -146,8 +148,8 @@ final class SnapshotMenuView: NSView {
         let root = NSStackView()
         root.orientation = .vertical
         root.alignment = .leading
-        root.spacing = 7
-        root.edgeInsets = NSEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
+        root.spacing = 10
+        root.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 10, right: 12)
         root.translatesAutoresizingMaskIntoConstraints = false
         addSubview(root)
 
@@ -162,6 +164,8 @@ final class SnapshotMenuView: NSView {
     }
 
     private func finalizeLayout(root: NSStackView) {
+        root.needsLayout = true
+        root.layoutSubtreeIfNeeded()
         layoutSubtreeIfNeeded()
         let height = root.fittingSize.height
         setFrameSize(NSSize(width: contentWidth, height: height))
@@ -192,7 +196,7 @@ final class SnapshotMenuView: NSView {
         topRow.spacing = 10
         row.addArrangedSubview(topRow)
 
-        let rangeLabel = menuLabel(title, size: 13, weight: .semibold, color: .labelColor)
+        let rangeLabel = menuLabel(title.uppercased(), size: 13, weight: .black, color: RelayTheme.text)
         topRow.addArrangedSubview(rangeLabel)
         topRow.addArrangedSubview(healthIndicator(snapshot: snapshot, config: config))
 
@@ -200,7 +204,7 @@ final class SnapshotMenuView: NSView {
 
         if enabled.contains(.refreshedAt) {
             let updated = DateFormatter.localizedString(from: snapshot.refreshedAt, dateStyle: .none, timeStyle: .medium)
-            let updatedLabel = menuLabel("\(texts.updated) \(updated)", size: 11, weight: .regular, color: .secondaryLabelColor)
+            let updatedLabel = menuLabel("\(texts.updated) \(updated)".uppercased(), size: 10, weight: .bold, color: RelayTheme.muted)
             updatedLabel.alignment = .right
             topRow.addArrangedSubview(updatedLabel)
         }
@@ -231,7 +235,7 @@ final class SnapshotMenuView: NSView {
     }
 
     private func adapterErrorsCard(dashboard: UsageDashboardSnapshot, texts: TextBundle) -> NSView {
-        let card = RoundedPanelView(accentColor: .systemTeal, fillAlpha: 0.045)
+        let card = RoundedPanelView(accentColor: RelayTheme.line, fillAlpha: 0.92)
         card.translatesAutoresizingMaskIntoConstraints = false
         card.widthAnchor.constraint(equalToConstant: contentWidth - 24).isActive = true
 
@@ -249,7 +253,7 @@ final class SnapshotMenuView: NSView {
             stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -8)
         ])
 
-        stack.addArrangedSubview(menuIconTitle(texts.error, accent: .systemTeal))
+        stack.addArrangedSubview(menuIconTitle(texts.error, accent: RelayTheme.down))
         for error in dashboard.errors {
             stack.addArrangedSubview(errorLine(error: error, texts: texts))
         }
@@ -262,13 +266,13 @@ final class SnapshotMenuView: NSView {
         row.alignment = .centerY
         row.spacing = 8
 
-        let dot = StatusDotView(color: .systemRed)
+        let dot = StatusDotView(color: RelayTheme.down)
         dot.translatesAutoresizingMaskIntoConstraints = false
         dot.widthAnchor.constraint(equalToConstant: 9).isActive = true
         dot.heightAnchor.constraint(equalToConstant: 9).isActive = true
         row.addArrangedSubview(dot)
 
-        let message = menuLabel("\(error.adapterName): \(texts.error)", size: 11, weight: .medium, color: .secondaryLabelColor)
+        let message = menuLabel("\(error.adapterName): \(texts.error)", size: 11, weight: .bold, color: RelayTheme.muted)
         message.toolTip = error.message
         row.addArrangedSubview(message)
         return row
@@ -286,32 +290,25 @@ final class SnapshotMenuView: NSView {
     }
 
     private func rangeTabs(selectedRange: UsageTimeRange, texts: TextBundle) -> NSView {
-        let control = NSSegmentedControl(
-            labels: UsageTimeRange.allCases.map { $0.label(texts: texts) },
-            trackingMode: .selectOne,
+        let selectedIndex = UsageTimeRange.allCases.firstIndex(of: selectedRange) ?? 0
+        return pixelTabs(
+            titles: UsageTimeRange.allCases.map { $0.label(texts: texts) },
+            selectedIndex: selectedIndex,
             target: self,
-            action: #selector(selectRange)
+            action: #selector(selectRangeButton)
         )
-        control.segmentStyle = .texturedRounded
-        control.selectedSegment = UsageTimeRange.allCases.firstIndex(of: selectedRange) ?? 0
-        control.translatesAutoresizingMaskIntoConstraints = false
-        control.widthAnchor.constraint(equalToConstant: contentWidth - 48).isActive = true
-        return control
     }
 
     private func sourceTabs(dashboard: UsageDashboardSnapshot, selectedSourceID: String, texts: TextBundle) -> NSView {
         let sources = sourceTabItems(dashboard: dashboard, texts: texts)
         sourceTabs = sources
-        let control = NSSegmentedControl(
-            labels: sources.map { $0.title },
-            trackingMode: .selectOne,
+        let selectedIndex = sources.firstIndex { $0.id == selectedSourceID } ?? 0
+        let control = pixelTabs(
+            titles: sources.map { $0.title },
+            selectedIndex: selectedIndex,
             target: self,
-            action: #selector(selectSource)
+            action: #selector(selectSourceButton)
         )
-        control.segmentStyle = .texturedRounded
-        control.selectedSegment = sources.firstIndex { $0.id == selectedSourceID } ?? 0
-        control.translatesAutoresizingMaskIntoConstraints = false
-        control.widthAnchor.constraint(equalToConstant: contentWidth - 48).isActive = true
         control.toolTip = texts.adapters
         return control
     }
@@ -324,8 +321,6 @@ final class SnapshotMenuView: NSView {
 
     private func actionButton(systemSymbol: String, fallbackTitle: String, tooltip: String, action: Selector) -> NSButton {
         let button = NSButton(title: fallbackTitle, target: self, action: action)
-        button.bezelStyle = .texturedRounded
-        button.isBordered = true
         button.imagePosition = .imageOnly
         button.toolTip = tooltip
         button.setAccessibilityLabel(tooltip)
@@ -335,7 +330,28 @@ final class SnapshotMenuView: NSView {
         button.translatesAutoresizingMaskIntoConstraints = false
         button.widthAnchor.constraint(equalToConstant: 28).isActive = true
         button.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        RelayTheme.styleButton(button, tint: RelayTheme.accent)
         return button
+    }
+
+    private func pixelTabs(titles: [String], selectedIndex: Int, target: AnyObject, action: Selector) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.distribution = .fillEqually
+        row.spacing = 0
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.widthAnchor.constraint(equalToConstant: contentWidth - 48).isActive = true
+        row.heightAnchor.constraint(equalToConstant: 36).isActive = true
+
+        for (index, title) in titles.enumerated() {
+            let button = NSButton(title: title, target: target, action: action)
+            button.tag = index
+            button.setButtonType(.momentaryPushIn)
+            RelayTheme.styleButton(button, tint: index == selectedIndex ? RelayTheme.accent : RelayTheme.cyan, isSelected: index == selectedIndex, fontSize: 12)
+            row.addArrangedSubview(button)
+        }
+        return row
     }
 
     private func metricCards(snapshot: UsageSnapshot, enabled: Set<DisplayItem>, texts: TextBundle) -> [NSView] {
@@ -346,7 +362,7 @@ final class SnapshotMenuView: NSView {
                 title: texts.traffic,
                 value: MenuValueFormatter.compact(snapshot.scope.totalRequests),
                 caption: texts.requests,
-                accent: .systemBlue,
+                accent: RelayTheme.cyan,
                 footers: [
                     (texts.successRate, MenuValueFormatter.percent(snapshot.scope.successRate)),
                     (texts.failures, MenuValueFormatter.number(snapshot.scope.failureCount))
@@ -359,7 +375,7 @@ final class SnapshotMenuView: NSView {
                 title: texts.tokens,
                 value: MenuValueFormatter.compact(snapshot.scope.totalTokens),
                 caption: texts.total,
-                accent: .systemPurple,
+                accent: RelayTheme.accent,
                 footers: [
                     ("\(texts.input)/\(texts.output)", "\(MenuValueFormatter.compact(snapshot.scope.inputTokens)) / \(MenuValueFormatter.compact(snapshot.scope.outputTokens))"),
                     (texts.cache, "\(MenuValueFormatter.compact(snapshot.scope.cacheTokens)) / \(MenuValueFormatter.percent(snapshot.scope.cacheRate))")
@@ -372,7 +388,7 @@ final class SnapshotMenuView: NSView {
                 title: texts.recent,
                 value: MenuValueFormatter.compact(snapshot.recent.totalRequests),
                 caption: texts.requests,
-                accent: .systemGreen,
+                accent: RelayTheme.up,
                 footers: [
                     (texts.tokens, MenuValueFormatter.compact(snapshot.recent.totalTokens)),
                     (texts.failures, MenuValueFormatter.number(snapshot.recent.failureCount))
@@ -385,7 +401,7 @@ final class SnapshotMenuView: NSView {
                 title: texts.latency,
                 value: snapshot.scope.avgLatencyMs.map(MenuValueFormatter.duration) ?? "--",
                 caption: texts.avg,
-                accent: .systemOrange,
+                accent: RelayTheme.warn,
                 footers: [
                     (texts.ttft, snapshot.scope.avgTtftMs.map(MenuValueFormatter.duration) ?? "--"),
                     (texts.successRate, MenuValueFormatter.percent(snapshot.scope.successRate))
@@ -426,10 +442,10 @@ final class SnapshotMenuView: NSView {
         primary.alignment = .leading
         primary.spacing = 3
         primary.addArrangedSubview(menuIconTitle(title, accent: accent))
-        let valueLabel = menuLabel(value, size: 22, weight: .bold, color: .labelColor)
+        let valueLabel = menuLabel(value, size: 24, weight: .black, color: RelayTheme.text)
         valueLabel.lineBreakMode = .byTruncatingTail
         primary.addArrangedSubview(valueLabel)
-        primary.addArrangedSubview(menuLabel(caption, size: 10, weight: .regular, color: .secondaryLabelColor))
+        primary.addArrangedSubview(menuLabel(caption.uppercased(), size: 10, weight: .bold, color: RelayTheme.muted))
         stack.addArrangedSubview(primary)
 
         let spacer = NSView()
@@ -468,11 +484,11 @@ final class SnapshotMenuView: NSView {
         row.alignment = .firstBaseline
         row.spacing = 6
 
-        let titleLabel = menuLabel(title, size: 10, weight: .regular, color: .secondaryLabelColor)
+        let titleLabel = menuLabel(title.uppercased(), size: 10, weight: .bold, color: RelayTheme.muted)
         titleLabel.widthAnchor.constraint(equalToConstant: 62).isActive = true
         row.addArrangedSubview(titleLabel)
 
-        let valueLabel = menuLabel(value, size: 11, weight: .semibold, color: .labelColor)
+        let valueLabel = menuLabel(value, size: 11, weight: .bold, color: RelayTheme.text)
         valueLabel.alignment = .right
         valueLabel.lineBreakMode = .byTruncatingTail
         row.addArrangedSubview(valueLabel)
@@ -483,15 +499,15 @@ final class SnapshotMenuView: NSView {
         config?.resolvedLanguage ?? .english
     }
 
-    @objc private func selectRange(_ sender: NSSegmentedControl) {
+    @objc private func selectRangeButton(_ sender: NSButton) {
         let ranges = UsageTimeRange.allCases
-        guard sender.selectedSegment >= 0, sender.selectedSegment < ranges.count else { return }
-        onRangeSelected?(ranges[sender.selectedSegment])
+        guard ranges.indices.contains(sender.tag) else { return }
+        onRangeSelected?(ranges[sender.tag])
     }
 
-    @objc private func selectSource(_ sender: NSSegmentedControl) {
-        guard sender.selectedSegment >= 0, sender.selectedSegment < sourceTabs.count else { return }
-        onSourceSelected?(sourceTabs[sender.selectedSegment].id)
+    @objc private func selectSourceButton(_ sender: NSButton) {
+        guard sourceTabs.indices.contains(sender.tag) else { return }
+        onSourceSelected?(sourceTabs[sender.tag].id)
     }
 
     @objc private func refreshTapped() {
@@ -500,5 +516,66 @@ final class SnapshotMenuView: NSView {
 
     @objc private func openMonitoringTapped() {
         onOpenMonitoring?()
+    }
+}
+
+final class MenuFooterView: NSView {
+    private let contentWidth: CGFloat = 380
+    private let onSettings: () -> Void
+    private let onQuit: () -> Void
+
+    init(texts: TextBundle, onSettings: @escaping () -> Void, onQuit: @escaping () -> Void) {
+        self.onSettings = onSettings
+        self.onQuit = onQuit
+        super.init(frame: NSRect(x: 0, y: 0, width: contentWidth, height: 54))
+        RelayTheme.applyWindowBackground(to: self)
+        build(texts: texts)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    private func build(texts: TextBundle) {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 10
+        row.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 10, right: 12)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+
+        let settingsButton = NSButton(title: texts.settings, target: self, action: #selector(settingsTapped))
+        settingsButton.translatesAutoresizingMaskIntoConstraints = false
+        settingsButton.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        settingsButton.widthAnchor.constraint(equalToConstant: 78).isActive = true
+        RelayTheme.styleButton(settingsButton, tint: RelayTheme.cyan, fontSize: 12)
+
+        let quitButton = NSButton(title: texts.quit, target: self, action: #selector(quitTapped))
+        quitButton.translatesAutoresizingMaskIntoConstraints = false
+        quitButton.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        quitButton.widthAnchor.constraint(equalToConstant: 66).isActive = true
+        RelayTheme.styleButton(quitButton, tint: RelayTheme.down, fontSize: 12)
+
+        row.addArrangedSubview(NSView())
+        row.addArrangedSubview(settingsButton)
+        row.addArrangedSubview(quitButton)
+
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor),
+            row.topAnchor.constraint(equalTo: topAnchor),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor),
+            widthAnchor.constraint(equalToConstant: contentWidth),
+            heightAnchor.constraint(equalToConstant: 54)
+        ])
+    }
+
+    @objc private func settingsTapped() {
+        onSettings()
+    }
+
+    @objc private func quitTapped() {
+        onQuit()
     }
 }

@@ -17,13 +17,17 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private var settingsWindow: SettingsWindowController?
     var lastSnapshot: UsageDashboardSnapshot?
     private var selectedSnapshotSourceID = UsageDashboardSnapshot.aggregateSourceID
-    private var snapshotItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private var mainPanel: NSPanel?
+    private var panelContentView: NSStackView?
+    private var snapshotView: SnapshotMenuView?
+    private var footerView: MenuFooterView?
+    private var isMainPanelPresented = false
+    private var outsideClickMonitor: Any?
     private var configWatcher: DispatchSourceFileSystemObject?
     private var configWatchDescriptor: CInt = -1
     private var configReloadWorkItem: DispatchWorkItem?
     private var isSavingConfig = false
     private var refreshGeneration = 0
-    private var errorItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -56,20 +60,10 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
 
     private func configureMenu() {
         statusItem.button?.title = "RM --"
-        let texts = TextBundle.forLanguage(config?.resolvedLanguage ?? .english)
-        let menu = NSMenu()
-        menu.delegate = self
-        errorItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        snapshotItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        menu.addItem(snapshotItem)
-        menu.addItem(errorItem)
-        menu.addItem(.separator())
-        addMenuItem(texts.settings, #selector(openSettings), "s", to: menu)
-        addMenuItem(texts.checkForUpdates, #selector(checkForUpdates), "", to: menu)
-        menu.addItem(.separator())
-        addMenuItem(texts.quit, #selector(quit), "q", to: menu)
-        errorItem.isHidden = true
-        statusItem.menu = menu
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(toggleMainPanel)
+        statusItem.menu = nil
+        configureMainPanelIfNeeded()
         renderSnapshotMenuView()
         logger.info("menu configured language=\((config?.resolvedLanguage ?? .english).rawValue) titleMetric=\((config?.resolvedTitleMetric ?? .requests).rawValue) hasSnapshot=\(lastSnapshot != nil)")
         if let lastSnapshot {
@@ -77,10 +71,41 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func addMenuItem(_ title: String, _ action: Selector, _ key: String, to menu: NSMenu) {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
-        item.target = self
-        menu.addItem(item)
+    private func configureMainPanelIfNeeded() {
+        guard mainPanel == nil else { return }
+        let content = NSStackView()
+        content.orientation = .vertical
+        content.alignment = .leading
+        content.spacing = 0
+        content.translatesAutoresizingMaskIntoConstraints = false
+        content.wantsLayer = true
+        content.layer?.backgroundColor = RelayTheme.background.cgColor
+
+        let container = RelayBackgroundView()
+        container.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            content.topAnchor.constraint(equalTo: container.topAnchor)
+        ])
+
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 640),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.contentView = container
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.hidesOnDeactivate = false
+        panel.isFloatingPanel = true
+        panel.isOpaque = false
+        panel.isReleasedWhenClosed = false
+        panel.level = .popUpMenu
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        mainPanel = panel
+        panelContentView = content
     }
 
     private func loadConfigAndStart() {
@@ -213,15 +238,13 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         ensureSelectedSnapshotExists(in: snapshot)
         renderMenuTitle(for: snapshot)
         renderSnapshotMenuView()
-        errorItem.isHidden = true
         logger.info("snapshot rendered title=\"\(statusItem.button?.title ?? "")\" cards=\(visibleCardItems())")
     }
 
     private func showError(_ message: String) {
         let texts = TextBundle.forLanguage(config?.resolvedLanguage ?? .english)
         statusItem.button?.title = "RM !"
-        errorItem.title = "\(texts.error): \(message)"
-        errorItem.isHidden = false
+        statusItem.button?.toolTip = "\(texts.error): \(message)"
     }
 
     private func menuTitle(for snapshot: UsageDashboardSnapshot) -> String {
@@ -245,7 +268,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private func renderMenuTitle(for snapshot: UsageDashboardSnapshot) {
         let attributed = NSMutableAttributedString(string: menuTitle(for: snapshot))
         attributed.addAttribute(.foregroundColor, value: menuHealthColor(snapshot.health), range: NSRange(location: 0, length: 1))
-        attributed.addAttribute(.foregroundColor, value: NSColor.labelColor, range: NSRange(location: 2, length: attributed.length - 2))
+        attributed.addAttribute(.foregroundColor, value: RelayTheme.text, range: NSRange(location: 2, length: attributed.length - 2))
         statusItem.button?.attributedTitle = attributed
         statusItem.button?.toolTip = "\(snapshot.health.label(language: config?.resolvedLanguage ?? .english)) · \(snapshot.adapters.count) adapters"
     }
@@ -262,7 +285,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         let refresh: () -> Void = { [weak self] in self?.refreshNow() }
         let openMonitoring: () -> Void = { [weak self] in self?.openMonitoringPage() }
         if let lastSnapshot {
-            snapshotItem.view = SnapshotMenuView(
+            snapshotView = SnapshotMenuView(
                 dashboard: lastSnapshot,
                 config: config,
                 texts: texts,
@@ -273,7 +296,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
                 onOpenMonitoring: openMonitoring
             )
         } else {
-            snapshotItem.view = SnapshotMenuView.loading(
+            snapshotView = SnapshotMenuView.loading(
                 texts: texts,
                 config: config,
                 selectedRange: config?.resolvedTimeRange ?? .today,
@@ -283,6 +306,78 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
                 onRefresh: refresh,
                 onOpenMonitoring: openMonitoring
             )
+        }
+        footerView = MenuFooterView(
+            texts: texts,
+            onSettings: { [weak self] in self?.openSettings() },
+            onQuit: { [weak self] in self?.quit() }
+        )
+        rebuildPanelContent()
+    }
+
+    private func rebuildPanelContent() {
+        guard let content = panelContentView, let snapshotView, let footerView else { return }
+        content.arrangedSubviews.forEach { view in
+            content.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        content.addArrangedSubview(snapshotView)
+        content.addArrangedSubview(footerView)
+        snapshotView.translatesAutoresizingMaskIntoConstraints = false
+        footerView.translatesAutoresizingMaskIntoConstraints = false
+        snapshotView.heightAnchor.constraint(equalToConstant: snapshotView.frame.height).isActive = true
+        footerView.heightAnchor.constraint(equalToConstant: footerView.frame.height).isActive = true
+        content.layoutSubtreeIfNeeded()
+        let height = ceil(snapshotView.frame.height + footerView.frame.height)
+        mainPanel?.setContentSize(NSSize(width: 380, height: height))
+        if isMainPanelPresented {
+            alignMainPanelWindow()
+        }
+    }
+
+    @objc private func toggleMainPanel() {
+        isMainPanelPresented ? hideMainPanel() : showMainPanel()
+    }
+
+    private func showMainPanel() {
+        configureMainPanelIfNeeded()
+        alignMainPanelWindow()
+        mainPanel?.orderFrontRegardless()
+        isMainPanelPresented = true
+        installOutsideClickMonitor()
+    }
+
+    private func hideMainPanel() {
+        isMainPanelPresented = false
+        mainPanel?.orderOut(nil)
+        removeOutsideClickMonitor()
+    }
+
+    private func alignMainPanelWindow() {
+        guard let panel = mainPanel, let button = statusItem.button, let buttonWindow = button.window else { return }
+        let buttonFrame = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+        let visibleFrame = buttonWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
+        let panelSize = panel.frame.size
+        var x = buttonFrame.midX - panelSize.width / 2
+        x = min(max(x, visibleFrame.minX + 8), visibleFrame.maxX - panelSize.width - 8)
+        let y = buttonFrame.minY - panelSize.height - 6
+        panel.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+
+    private func installOutsideClickMonitor() {
+        removeOutsideClickMonitor()
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self, let panel = self.mainPanel, self.isMainPanelPresented else { return }
+            if !panel.frame.contains(event.locationInWindow) {
+                DispatchQueue.main.async { self.hideMainPanel() }
+            }
+        }
+    }
+
+    private func removeOutsideClickMonitor() {
+        if let outsideClickMonitor {
+            NSEvent.removeMonitor(outsideClickMonitor)
+            self.outsideClickMonitor = nil
         }
     }
 
@@ -332,7 +427,11 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         guard let config else { return }
-        let controller = SettingsWindowController(config: config) { [weak self] nextConfig in self?.saveSettings(nextConfig) }
+        let controller = SettingsWindowController(
+            config: config,
+            onSave: { [weak self] nextConfig in self?.saveSettings(nextConfig) },
+            onCheckForUpdates: { [weak self] in self?.checkForUpdates() }
+        )
         settingsWindow = controller
         controller.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
