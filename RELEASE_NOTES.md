@@ -1,13 +1,9 @@
-# Relay Meter v1.0.3
+# Relay Meter v1.0.4
 
 ## Highlights
 
-- Applies the Candlebar-style pixel theme to the menu panel, metric cards, trend chart, rankings, settings window, buttons, tabs, dropdowns, and text fields.
-- Replaces the native menu shell with a borderless panel so the main menu height follows the enabled display cards.
-- Moves Check for Updates into Settings and keeps the main menu footer focused on Settings and Quit.
+- Improves the menu bar toggle behavior so clicking the status item again reliably closes the main panel.
 
 ## Fixes
 
-- Fixes custom settings dropdown interaction, including selection changes and outside-click dismissal.
-- Fixes settings text and secure fields so content is vertically centered while remaining editable.
-- Normalizes settings control sizes for adapter rows, delete buttons, footer actions, and the Add Adapter button.
+- Prevents the outside-click handler from immediately reopening the main panel when the click lands on the status item or its edge.

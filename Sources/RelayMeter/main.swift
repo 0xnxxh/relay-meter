@@ -3,6 +3,8 @@ import Foundation
 import Sparkle
 
 final class MenuBarApp: NSObject, NSApplicationDelegate {
+    private static let outsideCloseStatusToggleSuppressionSeconds: TimeInterval = 1.5
+
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
@@ -23,6 +25,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private var footerView: MenuFooterView?
     private var isMainPanelPresented = false
     private var outsideClickMonitor: Any?
+    private var suppressNextStatusOpenAfterOutsideClose = false
     private var configWatcher: DispatchSourceFileSystemObject?
     private var configWatchDescriptor: CInt = -1
     private var configReloadWorkItem: DispatchWorkItem?
@@ -61,7 +64,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private func configureMenu() {
         statusItem.button?.title = "RM --"
         statusItem.button?.target = self
-        statusItem.button?.action = #selector(toggleMainPanel)
+        statusItem.button?.action = #selector(toggleMainPanel(_:))
         statusItem.menu = nil
         configureMainPanelIfNeeded()
         renderSnapshotMenuView()
@@ -335,8 +338,17 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func toggleMainPanel() {
-        isMainPanelPresented ? hideMainPanel() : showMainPanel()
+    @objc private func toggleMainPanel(_ sender: NSStatusBarButton) {
+        if isMainPanelPresented || mainPanel?.isVisible == true {
+            hideMainPanel()
+            return
+        }
+        guard !suppressNextStatusOpenAfterOutsideClose else {
+            suppressNextStatusOpenAfterOutsideClose = false
+            return
+        }
+
+        showMainPanel()
     }
 
     private func showMainPanel() {
@@ -367,11 +379,24 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private func installOutsideClickMonitor() {
         removeOutsideClickMonitor()
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            guard let self, let panel = self.mainPanel, self.isMainPanelPresented else { return }
-            if !panel.frame.contains(event.locationInWindow) {
-                DispatchQueue.main.async { self.hideMainPanel() }
+            DispatchQueue.main.async {
+                self?.closeMainPanelIfClickIsOutside(event)
             }
         }
+    }
+
+    private func closeMainPanelIfClickIsOutside(_ event: NSEvent) {
+        guard let panel = mainPanel, isMainPanelPresented || panel.isVisible else {
+            removeOutsideClickMonitor()
+            return
+        }
+        let point = screenPoint(for: event)
+        guard !panel.frame.contains(point) else { return }
+        suppressNextStatusOpenAfterOutsideClose = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.outsideCloseStatusToggleSuppressionSeconds) { [weak self] in
+            self?.suppressNextStatusOpenAfterOutsideClose = false
+        }
+        hideMainPanel()
     }
 
     private func removeOutsideClickMonitor() {
@@ -379,6 +404,13 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
             NSEvent.removeMonitor(outsideClickMonitor)
             self.outsideClickMonitor = nil
         }
+    }
+
+    private func screenPoint(for event: NSEvent) -> NSPoint {
+        guard let window = event.window else {
+            return event.locationInWindow
+        }
+        return window.convertPoint(toScreen: event.locationInWindow)
     }
 
     private func selectTimeRangeTab(_ range: UsageTimeRange) {
