@@ -47,14 +47,21 @@ enum RelayTheme {
         button.layer?.backgroundColor = (isSelected ? tint : fill).cgColor
         button.contentTintColor = isSelected ? background : tint
         button.font = font(size: fontSize, weight: .bold)
-        button.attributedTitle = NSAttributedString(
-            string: button.title.uppercased(),
-            attributes: [.foregroundColor: isSelected ? background : tint, .font: font(size: fontSize, weight: .bold)]
-        )
-        button.attributedAlternateTitle = NSAttributedString(
-            string: button.alternateTitle.uppercased(),
-            attributes: [.foregroundColor: background, .font: font(size: fontSize, weight: .bold)]
-        )
+        let titleColor = isSelected ? background : tint
+        if button.title.isEmpty, button.image != nil {
+            // Image-only controls must not reintroduce title glyphs that collide with the icon.
+            button.attributedTitle = NSAttributedString(string: "")
+            button.attributedAlternateTitle = NSAttributedString(string: "")
+        } else {
+            button.attributedTitle = NSAttributedString(
+                string: button.title.uppercased(),
+                attributes: [.foregroundColor: titleColor, .font: font(size: fontSize, weight: .bold)]
+            )
+            button.attributedAlternateTitle = NSAttributedString(
+                string: button.alternateTitle.uppercased(),
+                attributes: [.foregroundColor: background, .font: font(size: fontSize, weight: .bold)]
+            )
+        }
     }
 
     static func styleField(_ field: NSTextField) {

@@ -208,11 +208,12 @@ final class SnapshotMenuView: NSView {
             updatedLabel.alignment = .right
             topRow.addArrangedSubview(updatedLabel)
         }
-        topRow.addArrangedSubview(actionButton(systemSymbol: "arrow.clockwise", fallbackTitle: "R", tooltip: texts.refresh, action: #selector(refreshTapped)))
-        topRow.addArrangedSubview(actionButton(systemSymbol: "safari", fallbackTitle: "M", tooltip: texts.openMonitoring, action: #selector(openMonitoringTapped)))
+        topRow.addArrangedSubview(actionButton(systemSymbol: "arrow.clockwise", tooltip: texts.refresh, action: #selector(refreshTapped)))
+        topRow.addArrangedSubview(actionButton(systemSymbol: "safari", tooltip: texts.openMonitoring, action: #selector(openMonitoringTapped)))
 
         row.addArrangedSubview(rangeTabs(selectedRange: snapshot.selectedRange, texts: texts))
-        if let dashboard, !dashboard.adapters.isEmpty {
+        // Single-adapter setups show identical aggregate vs adapter content; hide redundant source tabs.
+        if let dashboard, dashboard.adapters.count > 1 {
             row.addArrangedSubview(sourceTabs(dashboard: dashboard, selectedSourceID: selectedSourceID, texts: texts))
         }
 
@@ -253,7 +254,7 @@ final class SnapshotMenuView: NSView {
             stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -8)
         ])
 
-        stack.addArrangedSubview(menuIconTitle(texts.error, accent: RelayTheme.down))
+        stack.addArrangedSubview(menuIconTitle(texts.error, accent: RelayTheme.down, icon: .error))
         for error in dashboard.errors {
             stack.addArrangedSubview(errorLine(error: error, texts: texts))
         }
@@ -319,18 +320,23 @@ final class SnapshotMenuView: NSView {
         return items
     }
 
-    private func actionButton(systemSymbol: String, fallbackTitle: String, tooltip: String, action: Selector) -> NSButton {
-        let button = NSButton(title: fallbackTitle, target: self, action: action)
+    private func actionButton(systemSymbol: String, tooltip: String, action: Selector) -> NSButton {
+        let button = NSButton(title: "", target: self, action: action)
         button.imagePosition = .imageOnly
         button.toolTip = tooltip
         button.setAccessibilityLabel(tooltip)
         if let image = NSImage(systemSymbolName: systemSymbol, accessibilityDescription: tooltip) {
-            button.image = image
+            let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .bold)
+            button.image = image.withSymbolConfiguration(config)
+            button.image?.isTemplate = true
         }
         button.translatesAutoresizingMaskIntoConstraints = false
         button.widthAnchor.constraint(equalToConstant: 28).isActive = true
         button.heightAnchor.constraint(equalToConstant: 24).isActive = true
         RelayTheme.styleButton(button, tint: RelayTheme.accent)
+        // Keep pure icon: styleButton may re-apply an empty attributed title; ensure no glyph text shows.
+        button.title = ""
+        button.attributedTitle = NSAttributedString(string: "")
         return button
     }
 
@@ -363,6 +369,7 @@ final class SnapshotMenuView: NSView {
                 value: MenuValueFormatter.compact(snapshot.scope.totalRequests),
                 caption: texts.requests,
                 accent: RelayTheme.cyan,
+                icon: .traffic,
                 footers: [
                     (texts.successRate, MenuValueFormatter.percent(snapshot.scope.successRate)),
                     (texts.failures, MenuValueFormatter.number(snapshot.scope.failureCount))
@@ -376,6 +383,7 @@ final class SnapshotMenuView: NSView {
                 value: MenuValueFormatter.compact(snapshot.scope.totalTokens),
                 caption: texts.total,
                 accent: RelayTheme.accent,
+                icon: .tokens,
                 footers: [
                     ("\(texts.input)/\(texts.output)", "\(MenuValueFormatter.compact(snapshot.scope.inputTokens)) / \(MenuValueFormatter.compact(snapshot.scope.outputTokens))"),
                     (texts.cache, "\(MenuValueFormatter.compact(snapshot.scope.cacheTokens)) / \(MenuValueFormatter.percent(snapshot.scope.cacheRate))")
@@ -389,6 +397,7 @@ final class SnapshotMenuView: NSView {
                 value: MenuValueFormatter.compact(snapshot.recent.totalRequests),
                 caption: texts.requests,
                 accent: RelayTheme.up,
+                icon: .recent,
                 footers: [
                     (texts.tokens, MenuValueFormatter.compact(snapshot.recent.totalTokens)),
                     (texts.failures, MenuValueFormatter.number(snapshot.recent.failureCount))
@@ -402,6 +411,7 @@ final class SnapshotMenuView: NSView {
                 value: snapshot.scope.avgLatencyMs.map(MenuValueFormatter.duration) ?? "--",
                 caption: texts.avg,
                 accent: RelayTheme.warn,
+                icon: .latency,
                 footers: [
                     (texts.ttft, snapshot.scope.avgTtftMs.map(MenuValueFormatter.duration) ?? "--"),
                     (texts.successRate, MenuValueFormatter.percent(snapshot.scope.successRate))
@@ -417,6 +427,7 @@ final class SnapshotMenuView: NSView {
         value: String,
         caption: String,
         accent: NSColor,
+        icon: MenuPixelIconKind,
         footers: [(String, String)]
     ) -> NSView {
         let card = RoundedPanelView(accentColor: accent, fillAlpha: 0.055)
@@ -441,7 +452,7 @@ final class SnapshotMenuView: NSView {
         primary.orientation = .vertical
         primary.alignment = .leading
         primary.spacing = 3
-        primary.addArrangedSubview(menuIconTitle(title, accent: accent))
+        primary.addArrangedSubview(menuIconTitle(title, accent: accent, icon: icon))
         let valueLabel = menuLabel(value, size: 24, weight: .black, color: RelayTheme.text)
         valueLabel.lineBreakMode = .byTruncatingTail
         primary.addArrangedSubview(valueLabel)

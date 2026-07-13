@@ -33,7 +33,7 @@ final class TrendMenuCardView: RoundedPanelView {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
         ])
 
-        stack.addArrangedSubview(menuIconTitle(texts.trend, accent: RelayTheme.accent))
+        stack.addArrangedSubview(menuIconTitle(texts.trend, accent: RelayTheme.accent, icon: .trend))
         let chart = TrendChartView(points: points) { [weak self] point in
             self?.selectedLabel.stringValue = self?.valueText(point) ?? "--"
         }

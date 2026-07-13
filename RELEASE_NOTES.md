@@ -1,9 +1,11 @@
-# Relay Meter v1.0.4
+# Relay Meter v1.0.5
 
 ## Highlights
 
-- Improves the menu bar toggle behavior so clicking the status item again reliably closes the main panel.
+- Replaces generic card markers with content-matched pixel icons for traffic, tokens, latency, ranking, and trend cards.
+- Keeps header action buttons icon-only so refresh and monitoring controls stay readable.
 
 ## Fixes
 
-- Prevents the outside-click handler from immediately reopening the main panel when the click lands on the status item or its edge.
+- Stops SF Symbol buttons from overlapping fallback text in the menu header.
+- Hides the adapter source tabs when only one adapter is configured, since aggregate and adapter views are identical.

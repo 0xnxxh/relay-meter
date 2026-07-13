@@ -25,7 +25,7 @@ final class RankingMenuCardView: RoundedPanelView {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
         ])
 
-        stack.addArrangedSubview(menuIconTitle(cardTitle(enabled: enabled, texts: texts), accent: RelayTheme.cyan))
+        stack.addArrangedSubview(menuIconTitle(cardTitle(enabled: enabled, texts: texts), accent: RelayTheme.cyan, icon: .ranking))
         let content = NSStackView()
         content.orientation = .horizontal
         content.alignment = .top
