@@ -88,16 +88,27 @@ private struct CLIProxyAPIProUsageAdapter {
 
     func fetchSnapshot() async throws -> UsageSnapshot {
         let range = config.resolvedTimeRange
+        guard let activityBounds = config.activityBounds() else {
+            throw MonitorError.invalidActivityDateRange
+        }
         let fromMs = rangeStartMs(range)
         let interval = aggregateInterval(range)
         let limit = aggregateLimit(range)
 
         async let today = fetchScope(fromMs: fromMs, interval: interval, limit: limit, groupBy: [])
+        async let activity = fetchScope(
+            fromMs: milliseconds(activityBounds.start),
+            toMs: milliseconds(activityBounds.end),
+            interval: "day",
+            limit: 2_000,
+            groupBy: []
+        )
         async let recent = fetchScope(fromMs: minutesAgoMs(15), groupBy: [])
         async let models = fetchScope(fromMs: fromMs, interval: interval, limit: limit, groupBy: ["model"])
         async let apiKeys = fetchScope(fromMs: fromMs, interval: interval, limit: limit, groupBy: ["api_key_hash"])
 
         let todayBuckets = try await today
+        let activityBuckets = try await activity
         let recentBuckets = try await recent
         let modelBuckets = try await models
         let apiKeyBuckets = try await apiKeys
@@ -111,20 +122,21 @@ private struct CLIProxyAPIProUsageAdapter {
             scope: summarize(todayBuckets),
             recent: summarize(recentBuckets),
             trendPoints: trendPoints(todayBuckets, range: range),
+            activityPoints: activityPoints(activityBuckets),
             topModels: rank(modelBuckets: modelBuckets, label: \.model),
             topApiKeys: rank(modelBuckets: apiKeyBuckets, label: \.apiKeyHash).map(maskHashRow),
             refreshedAt: Date()
         )
     }
 
-    private func fetchScope(fromMs: Int, interval: String = "hour", limit: Int? = nil, groupBy: [String]) async throws -> [UsageAggregateBucket] {
+    private func fetchScope(fromMs: Int, toMs: Int = nowMs(), interval: String = "hour", limit: Int? = nil, groupBy: [String]) async throws -> [UsageAggregateBucket] {
         guard var components = URLComponents(url: usageURL(path: "aggregates"), resolvingAgainstBaseURL: false) else {
             throw MonitorError.invalidBaseURL(config.baseURL)
         }
 
         var queryItems = [
             URLQueryItem(name: "from_ms", value: String(fromMs)),
-            URLQueryItem(name: "to_ms", value: String(nowMs())),
+            URLQueryItem(name: "to_ms", value: String(toMs)),
             URLQueryItem(name: "interval", value: interval),
             URLQueryItem(name: "limit", value: String(limit ?? (groupBy.isEmpty ? 48 : 200)))
         ]
@@ -166,14 +178,28 @@ private struct Sub2APIUsageAdapter {
 
     func fetchSnapshot() async throws -> UsageSnapshot {
         let range = config.resolvedTimeRange
+        guard let activityBounds = config.activityBounds() else {
+            throw MonitorError.invalidActivityDateRange
+        }
         let query = dateRangeQuery(range)
+        let activityQuery = dateRangeQuery(activityBounds)
         async let stats: Sub2APIEnvelope<Sub2APIStats> = get("/api/v1/admin/dashboard/stats")
         async let trend: Sub2APIEnvelope<Sub2APITrendPayload> = get("/api/v1/admin/dashboard/trend?\(query)&granularity=\(range == .today ? "hour" : "day")")
+        async let activity: Sub2APIEnvelope<Sub2APITrendPayload> = get("/api/v1/admin/dashboard/trend?\(activityQuery)&granularity=day")
         async let models: Sub2APIEnvelope<Sub2APIModelsPayload> = get("/api/v1/admin/dashboard/models?\(query)&model_source=requested")
         async let apiKeys: Sub2APIEnvelope<Sub2APIAPIKeyTrendPayload> = get("/api/v1/admin/dashboard/api-keys-trend?\(query)&granularity=day&limit=3")
 
         let statsData = try await stats.data
         let trendPoints = try await trend.data.trend.map { point in
+            UsageTrendPoint(
+                bucketStartMs: parseSub2APIDateMs(point.date),
+                label: point.date,
+                requests: point.requests,
+                failures: 0,
+                tokens: point.totalTokens
+            )
+        }
+        let activityPoints = try await activity.data.trend.map { point in
             UsageTrendPoint(
                 bucketStartMs: parseSub2APIDateMs(point.date),
                 label: point.date,
@@ -198,6 +224,7 @@ private struct Sub2APIUsageAdapter {
             scope: statsData.scope(for: range),
             recent: statsData.recentScope(),
             trendPoints: trendPoints.sorted { $0.bucketStartMs < $1.bucketStartMs }.suffix(30).map { $0 },
+            activityPoints: activityPoints.sorted { $0.bucketStartMs < $1.bucketStartMs },
             topModels: modelRows.sortedForRanking().prefix(3).map { $0 },
             topApiKeys: apiKeyRows.sortedForRanking().prefix(3).map { $0 },
             refreshedAt: Date()
@@ -222,13 +249,18 @@ private struct NewAPIUsageAdapter {
 
     func fetchSnapshot() async throws -> UsageSnapshot {
         let range = config.resolvedTimeRange
+        guard let activityBounds = config.activityBounds() else {
+            throw MonitorError.invalidActivityDateRange
+        }
         let fromSeconds = rangeStartMs(range) / 1_000
         let toSeconds = nowMs() / 1_000
 
         async let logs: NewAPIEnvelope<NewAPILogPage> = get("/api/log/?type=2&start_timestamp=\(fromSeconds)&end_timestamp=\(toSeconds)&p=0&page_size=200")
+        async let activityLogs: NewAPIEnvelope<NewAPILogPage> = get("/api/log/?type=2&start_timestamp=\(seconds(activityBounds.start))&end_timestamp=\(seconds(activityBounds.end))&p=0&page_size=200")
         async let recentLogs: NewAPIEnvelope<NewAPILogPage> = get("/api/log/?type=2&start_timestamp=\(minutesAgoMs(15) / 1_000)&end_timestamp=\(toSeconds)&p=0&page_size=200")
 
         let logItems = try await logs.data.items
+        let activityItems = try await activityLogs.data.items
         let recentItems = try await recentLogs.data.items
         logger.info("new-api snapshot range=\(range.rawValue) logs=\(logItems.count) recent=\(recentItems.count)")
 
@@ -240,6 +272,7 @@ private struct NewAPIUsageAdapter {
             scope: scope(from: logItems),
             recent: scope(from: recentItems),
             trendPoints: trendPoints(from: logItems, range: range),
+            activityPoints: activityPoints(from: activityItems),
             topModels: ranking(from: logItems, key: \.modelName),
             topApiKeys: ranking(from: logItems, key: \.tokenName),
             refreshedAt: Date()
@@ -294,6 +327,29 @@ private struct NewAPIUsageAdapter {
             )
         }
         return rowsByBucket.values.sorted { $0.bucketStartMs < $1.bucketStartMs }.suffix(30).map { $0 }
+    }
+
+    private func activityPoints(from logs: [NewAPILog]) -> [UsageTrendPoint] {
+        var rowsByBucket: [Int: UsageTrendPoint] = [:]
+        for log in logs {
+            let date = Date(timeIntervalSince1970: TimeInterval(log.createdAt))
+            let bucket = milliseconds(Calendar.current.startOfDay(for: date))
+            let previous = rowsByBucket[bucket] ?? UsageTrendPoint(
+                bucketStartMs: bucket,
+                label: activityLabel(bucket),
+                requests: 0,
+                failures: 0,
+                tokens: 0
+            )
+            rowsByBucket[bucket] = UsageTrendPoint(
+                bucketStartMs: bucket,
+                label: previous.label,
+                requests: previous.requests + 1,
+                failures: previous.failures + (log.type == 5 ? 1 : 0),
+                tokens: previous.tokens + log.promptTokens + log.completionTokens
+            )
+        }
+        return rowsByBucket.values.sorted { $0.bucketStartMs < $1.bucketStartMs }
     }
 
     private func ranking(from logs: [NewAPILog], key: (NewAPILog) -> String) -> [UsageRankingRow] {
@@ -402,6 +458,14 @@ private func nowMs() -> Int {
     Int(Date().timeIntervalSince1970 * 1_000)
 }
 
+private func milliseconds(_ date: Date) -> Int {
+    Int(date.timeIntervalSince1970 * 1_000)
+}
+
+private func seconds(_ date: Date) -> Int {
+    Int(date.timeIntervalSince1970)
+}
+
 private func minutesAgoMs(_ minutes: Int) -> Int {
     Int(Date().addingTimeInterval(TimeInterval(-minutes * 60)).timeIntervalSince1970 * 1_000)
 }
@@ -425,6 +489,12 @@ private func dateRangeQuery(_ range: UsageTimeRange) -> String {
     let formatter = DateFormatter()
     formatter.dateFormat = "yyyy-MM-dd"
     return "start_date=\(formatter.string(from: start))&end_date=\(formatter.string(from: end))"
+}
+
+private func dateRangeQuery(_ bounds: UsageDateBounds) -> String {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd"
+    return "start_date=\(formatter.string(from: bounds.start))&end_date=\(formatter.string(from: bounds.end))"
 }
 
 private func summarize(_ buckets: [UsageAggregateBucket]) -> UsageScope {
@@ -465,6 +535,28 @@ private func trendPoints(_ buckets: [UsageAggregateBucket], range: UsageTimeRang
         .sorted { $0.bucketStartMs < $1.bucketStartMs }
         .suffix(30)
         .map { $0 }
+}
+
+private func activityPoints(_ buckets: [UsageAggregateBucket]) -> [UsageTrendPoint] {
+    buckets
+        .compactMap { bucket -> UsageTrendPoint? in
+            guard let bucketStartMs = bucket.bucketStartMs else { return nil }
+            return UsageTrendPoint(
+                bucketStartMs: bucketStartMs,
+                label: activityLabel(bucketStartMs),
+                requests: bucket.totalRequests,
+                failures: bucket.failureCount,
+                tokens: bucket.totalTokens
+            )
+        }
+        .sorted { $0.bucketStartMs < $1.bucketStartMs }
+}
+
+private func activityLabel(_ bucketStartMs: Int) -> String {
+    let date = Date(timeIntervalSince1970: TimeInterval(bucketStartMs) / 1_000)
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.string(from: date)
 }
 
 private func trendLabel(_ bucketStartMs: Int, range: UsageTimeRange) -> String {
@@ -545,10 +637,33 @@ private func aggregateSnapshot(from snapshots: [UsageSnapshot], range: UsageTime
         scope: scope,
         recent: recent,
         trendPoints: trendByBucket.values.sorted { $0.bucketStartMs < $1.bucketStartMs }.suffix(30).map { $0 },
+        activityPoints: aggregateActivityPoints(snapshots),
         topModels: Array(modelRows.values).sortedForRanking().prefix(3).map { $0 },
         topApiKeys: Array(apiKeyRows.values).sortedForRanking().prefix(3).map { $0 },
         refreshedAt: refreshedAt
     )
+}
+
+private func aggregateActivityPoints(_ snapshots: [UsageSnapshot]) -> [UsageTrendPoint] {
+    var pointsByDay: [Int: UsageTrendPoint] = [:]
+    for point in snapshots.flatMap(\.activityPoints) {
+        let day = milliseconds(Calendar.current.startOfDay(for: Date(timeIntervalSince1970: TimeInterval(point.bucketStartMs) / 1_000)))
+        let previous = pointsByDay[day] ?? UsageTrendPoint(
+            bucketStartMs: day,
+            label: activityLabel(day),
+            requests: 0,
+            failures: 0,
+            tokens: 0
+        )
+        pointsByDay[day] = UsageTrendPoint(
+            bucketStartMs: day,
+            label: previous.label,
+            requests: previous.requests + point.requests,
+            failures: previous.failures + point.failures,
+            tokens: previous.tokens + point.tokens
+        )
+    }
+    return pointsByDay.values.sorted { $0.bucketStartMs < $1.bucketStartMs }
 }
 
 private func mergeRankingRows(_ rows: [UsageRankingRow], prefix: String, into target: inout [String: UsageRankingRow]) {

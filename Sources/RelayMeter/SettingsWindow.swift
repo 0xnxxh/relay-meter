@@ -34,6 +34,10 @@ final class SettingsWindowController: NSWindowController {
         TextBundle.forLanguage(config.resolvedLanguage)
     }
 
+    private var settingsTexts: SettingsTextBundle {
+        SettingsTextBundle.forLanguage(config.resolvedLanguage)
+    }
+
     init(
         config: AppConfig,
         onSave: @escaping (AppConfig) -> Void,
@@ -48,7 +52,7 @@ final class SettingsWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = config.resolvedLanguage == .chinese ? "Relay Meter 设置" : "Relay Meter Settings"
+        window.title = SettingsTextBundle.forLanguage(config.resolvedLanguage).windowTitle
         window.minSize = NSSize(width: Layout.windowWidth, height: 420)
         window.titlebarAppearsTransparent = true
         window.styleMask.insert(.fullSizeContentView)
@@ -111,12 +115,12 @@ final class SettingsWindowController: NSWindowController {
 
         configurePopup(
             languagePopup,
-            items: AppLanguage.allCases.map { ($0.rawValue, languageLabel($0)) },
+            items: AppLanguage.allCases.map { ($0.rawValue, settingsTexts.languageLabel($0)) },
             selected: config.resolvedLanguage.rawValue
         )
         configurePopup(
             titlePopup,
-            items: DisplayMetric.allCases.map { ($0.rawValue, metricLabel($0)) },
+            items: DisplayMetric.allCases.map { ($0.rawValue, settingsTexts.metricLabel($0)) },
             selected: config.resolvedTitleMetric.rawValue
         )
         configurePopup(
@@ -152,7 +156,7 @@ final class SettingsWindowController: NSWindowController {
         controls.enabledButton.state = adapter.isEnabled ? .on : .off
         controls.enabledButton.target = self
         controls.enabledButton.action = #selector(adapterEnabledChanged(_:))
-        controls.showKeyButton.title = config.resolvedLanguage == .chinese ? "显示" : "Show"
+        controls.showKeyButton.title = settingsTexts.show
         controls.showKeyButton.target = self
         controls.showKeyButton.action = #selector(toggleAdapterKeyVisibility(_:))
         controls.showKeyButton.translatesAutoresizingMaskIntoConstraints = false
@@ -201,10 +205,10 @@ final class SettingsWindowController: NSWindowController {
         stack.wantsLayer = true
         stack.layer?.backgroundColor = RelayTheme.background.cgColor
 
-        let title = label(config.resolvedLanguage == .chinese ? "设置" : "Settings", size: 20, weight: .black, color: RelayTheme.accent)
+        let title = label(settingsTexts.title, size: 20, weight: .black, color: RelayTheme.accent)
         title.alignment = .center
         let subtitle = label(
-            config.resolvedLanguage == .chinese ? "分别配置 adapter、菜单栏显示和监控卡片。" : "Configure adapters, menu bar display, and monitoring cards.",
+            settingsTexts.subtitle,
             size: 12,
             weight: .bold,
             color: RelayTheme.muted
@@ -232,16 +236,16 @@ final class SettingsWindowController: NSWindowController {
         ))
 
         content.addArrangedSubview(section(
-            title: config.resolvedLanguage == .chinese ? "显示" : "Display",
+            title: settingsTexts.displaySection,
             rows: [
-                formRow(title: config.resolvedLanguage == .chinese ? "语言" : "Language", control: languagePopup),
-                formRow(title: config.resolvedLanguage == .chinese ? "菜单栏默认显示" : "Menu Bar Title", control: titlePopup),
+                formRow(title: settingsTexts.language, control: languagePopup),
+                formRow(title: settingsTexts.menuBarTitle, control: titlePopup),
                 formRow(title: texts.range, control: rangePopup)
             ]
         ))
 
         content.addArrangedSubview(section(
-            title: config.resolvedLanguage == .chinese ? "卡片" : "Cards",
+            title: settingsTexts.cardsSection,
             rows: [cardOptionsView(), hintLabel()]
         ))
 
@@ -314,8 +318,8 @@ final class SettingsWindowController: NSWindowController {
         actions.translatesAutoresizingMaskIntoConstraints = false
 
         let updateButton = NSButton(title: texts.checkForUpdates, target: self, action: #selector(checkForUpdates))
-        let cancelButton = NSButton(title: config.resolvedLanguage == .chinese ? "取消" : "Cancel", target: self, action: #selector(cancel))
-        let saveButton = NSButton(title: config.resolvedLanguage == .chinese ? "保存" : "Save", target: self, action: #selector(save))
+        let cancelButton = NSButton(title: settingsTexts.cancel, target: self, action: #selector(cancel))
+        let saveButton = NSButton(title: settingsTexts.save, target: self, action: #selector(save))
         saveButton.keyEquivalent = "\r"
         for button in [updateButton, cancelButton, saveButton] {
             button.translatesAutoresizingMaskIntoConstraints = false
@@ -459,7 +463,7 @@ final class SettingsWindowController: NSWindowController {
         header.spacing = 8
         header.translatesAutoresizingMaskIntoConstraints = false
         header.heightAnchor.constraint(equalToConstant: Layout.adapterHeaderHeight).isActive = true
-        controls.enabledButton.title = config.resolvedLanguage == .chinese ? "启用" : "Enabled"
+        controls.enabledButton.title = settingsTexts.enabled
         header.addArrangedSubview(controls.enabledButton)
         header.addArrangedSubview(controls.platformPopup)
         header.addArrangedSubview(NSView())
@@ -481,7 +485,7 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func addAdapterButton() -> NSView {
-        let button = NSButton(title: config.resolvedLanguage == .chinese ? "添加 Adapter" : "Add Adapter", target: self, action: #selector(addAdapter))
+        let button = NSButton(title: settingsTexts.addAdapter, target: self, action: #selector(addAdapter))
         button.translatesAutoresizingMaskIntoConstraints = false
         button.heightAnchor.constraint(equalToConstant: 30).isActive = true
         button.widthAnchor.constraint(equalToConstant: 168).isActive = true
@@ -496,7 +500,7 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func deleteAdapterButton(_ controls: AdapterConfigControls) -> NSButton {
-        let button = NSButton(title: config.resolvedLanguage == .chinese ? "删除" : "Delete", target: self, action: #selector(deleteAdapter(_:)))
+        let button = NSButton(title: settingsTexts.delete, target: self, action: #selector(deleteAdapter(_:)))
         button.tag = adapterControls.firstIndex { $0 === controls } ?? -1
         button.isEnabled = adapterControls.count > 1
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -550,7 +554,7 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func checkbox(for item: DisplayItem, enabledItems: Set<DisplayItem>) -> NSButton {
-        let button = NSButton(checkboxWithTitle: itemLabel(item), target: nil, action: nil)
+        let button = NSButton(checkboxWithTitle: settingsTexts.itemLabel(item), target: nil, action: nil)
         button.state = enabledItems.contains(item) ? .on : .off
         button.font = RelayTheme.font(size: 12, weight: .bold)
         button.contentTintColor = RelayTheme.accent
@@ -560,10 +564,7 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func hintLabel() -> NSTextField {
-        let text = config.resolvedLanguage == .chinese
-            ? "启用的 adapter 会并发刷新；单个 adapter 失败不会阻止其他 adapter 展示。"
-            : "Enabled adapters refresh in parallel; one failed adapter does not block the others."
-        let hint = label(text, size: 11, weight: .bold, color: RelayTheme.muted)
+        let hint = label(settingsTexts.adaptersHint, size: 11, weight: .bold, color: RelayTheme.muted)
         hint.maximumNumberOfLines = 2
         hint.lineBreakMode = .byTruncatingTail
         hint.widthAnchor.constraint(equalToConstant: Layout.contentWidth - 32).isActive = true
@@ -612,40 +613,6 @@ final class SettingsWindowController: NSWindowController {
         return field
     }
 
-    private func languageLabel(_ language: AppLanguage) -> String {
-        switch language {
-        case .english: return "English"
-        case .chinese: return "简体中文"
-        }
-    }
-
-    private func metricLabel(_ metric: DisplayMetric) -> String {
-        switch metric {
-        case .requests: return config.resolvedLanguage == .chinese ? "请求数 + 成功率" : "Requests + success rate"
-        case .tokens: return config.resolvedLanguage == .chinese ? "总 Token" : "Total tokens"
-        case .failures: return config.resolvedLanguage == .chinese ? "失败数" : "Failures"
-        case .successRate: return config.resolvedLanguage == .chinese ? "成功率" : "Success rate"
-        case .latency: return config.resolvedLanguage == .chinese ? "平均延迟" : "Average latency"
-        case .cache: return config.resolvedLanguage == .chinese ? "缓存 Token" : "Cache tokens"
-        case .recent: return config.resolvedLanguage == .chinese ? "最近 15 分钟活跃" : "Last 15m activity"
-        }
-    }
-
-    private func itemLabel(_ item: DisplayItem) -> String {
-        switch item {
-        case .traffic: return config.resolvedLanguage == .chinese ? "流量" : "Traffic"
-        case .successRate: return config.resolvedLanguage == .chinese ? "成功率" : "Success rate"
-        case .tokens: return config.resolvedLanguage == .chinese ? "Token" : "Tokens"
-        case .cache: return config.resolvedLanguage == .chinese ? "缓存" : "Cache"
-        case .latency: return config.resolvedLanguage == .chinese ? "延迟" : "Latency"
-        case .recent: return config.resolvedLanguage == .chinese ? "最近 15 分钟" : "Last 15m"
-        case .trend: return config.resolvedLanguage == .chinese ? "趋势曲线图" : "Trend chart"
-        case .topModel: return config.resolvedLanguage == .chinese ? "Top 模型" : "Top model"
-        case .topApiKey: return config.resolvedLanguage == .chinese ? "Top API Key" : "Top API key"
-        case .refreshedAt: return config.resolvedLanguage == .chinese ? "最后更新时间" : "Last updated"
-        }
-    }
-
     @objc private func save() {
         if let interval = TimeInterval(refreshIntervalField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)) {
             config.refreshIntervalSeconds = interval
@@ -656,6 +623,7 @@ final class SettingsWindowController: NSWindowController {
         config.language = AppLanguage(rawValue: selectedValue(languagePopup))
         config.titleMetric = DisplayMetric(rawValue: selectedValue(titlePopup))
         config.timeRange = UsageTimeRange(rawValue: selectedValue(rangePopup))
+        config.activityPeriod = config.resolvedActivityPeriod
         config.display = config.titleMetric?.rawValue
         config.listItems = DisplayItem.allCases.filter { itemButtons[$0]?.state == .on }
         onSave(config)
@@ -731,9 +699,7 @@ final class SettingsWindowController: NSWindowController {
         }
         controls.keyField.isHidden = controls.isKeyVisible
         controls.visibleKeyField.isHidden = !controls.isKeyVisible
-        controls.showKeyButton.title = controls.isKeyVisible
-            ? (config.resolvedLanguage == .chinese ? "隐藏" : "Hide")
-            : (config.resolvedLanguage == .chinese ? "显示" : "Show")
+        controls.showKeyButton.title = controls.isKeyVisible ? settingsTexts.hide : settingsTexts.show
         RelayTheme.styleButton(controls.showKeyButton, tint: RelayTheme.cyan)
     }
 
@@ -804,7 +770,7 @@ private final class AdapterConfigControls {
 private final class PixelTextField: NSTextField {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        cell = PixelTextFieldCell(textCell: "")
+        cell = VerticallyCenteredTextFieldCell(textCell: "")
         isEditable = true
         isSelectable = true
         refusesFirstResponder = false
@@ -846,7 +812,7 @@ private final class PixelSecureField: NSSecureTextField {
     }
 }
 
-private class VerticallyCenteredTextFieldCell: NSTextFieldCell {
+private final class VerticallyCenteredTextFieldCell: NSTextFieldCell {
     override func drawingRect(forBounds rect: NSRect) -> NSRect {
         let textSize = cellSize(forBounds: rect)
         let y = rect.origin.y + max(0, (rect.height - textSize.height) / 2)
@@ -861,8 +827,6 @@ private class VerticallyCenteredTextFieldCell: NSTextFieldCell {
         super.select(withFrame: drawingRect(forBounds: rect), in: controlView, editor: textObj, delegate: delegate, start: selStart, length: selLength)
     }
 }
-
-private final class PixelTextFieldCell: VerticallyCenteredTextFieldCell {}
 
 private final class PixelSecureTextFieldCell: NSSecureTextFieldCell {
     override func drawingRect(forBounds rect: NSRect) -> NSRect {

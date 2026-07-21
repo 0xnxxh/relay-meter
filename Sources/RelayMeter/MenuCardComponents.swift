@@ -178,10 +178,6 @@ final class StatusDotView: NSView {
     }
 }
 
-func menuHealthColor(_ health: HealthState) -> NSColor {
-    RelayTheme.healthColor(health)
-}
-
 enum MenuValueFormatter {
     static func percent(_ value: Double) -> String {
         "\(Int((value * 100).rounded()))%"

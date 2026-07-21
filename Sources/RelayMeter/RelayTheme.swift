@@ -12,6 +12,13 @@ enum RelayTheme {
     static let warn = NSColor(red: 0.990, green: 0.725, blue: 0.255, alpha: 1)
     static let accent = NSColor(red: 1.000, green: 0.810, blue: 0.255, alpha: 1)
     static let cyan = NSColor(red: 0.330, green: 0.790, blue: 0.950, alpha: 1)
+    static let activityLevels = [
+        raisedAlt,
+        NSColor(red: 0.105, green: 0.260, blue: 0.205, alpha: 1),
+        NSColor(red: 0.145, green: 0.430, blue: 0.285, alpha: 1),
+        NSColor(red: 0.185, green: 0.645, blue: 0.380, alpha: 1),
+        up
+    ]
 
     static func font(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
         .monospacedSystemFont(ofSize: size, weight: weight)

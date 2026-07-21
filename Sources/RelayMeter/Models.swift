@@ -14,6 +14,9 @@ struct AppConfig: Codable {
     var titleMetric: DisplayMetric?
     var listItems: [DisplayItem]?
     var timeRange: UsageTimeRange?
+    var activityPeriod: UsageActivityPeriod?
+    var activityStartDate: Date?
+    var activityEndDate: Date?
 
     static let defaultConfig = AppConfig(
         adapters: [
@@ -40,7 +43,10 @@ struct AppConfig: Codable {
         language: .english,
         titleMetric: .requests,
         listItems: DisplayItem.defaultItems,
-        timeRange: .today
+        timeRange: .today,
+        activityPeriod: .last30Days,
+        activityStartDate: nil,
+        activityEndDate: nil
     )
 
     var refreshInterval: TimeInterval {
@@ -57,11 +63,28 @@ struct AppConfig: Codable {
 
     var resolvedListItems: [DisplayItem] {
         let values = listItems ?? DisplayItem.defaultItems
-        return values.isEmpty ? DisplayItem.defaultItems : values
+        let resolved = values.isEmpty ? DisplayItem.defaultItems : values
+        if activityPeriod == nil, !resolved.contains(.activity) {
+            return resolved + [.activity]
+        }
+        return resolved
     }
 
     var resolvedTimeRange: UsageTimeRange {
         timeRange ?? .today
+    }
+
+    var resolvedActivityPeriod: UsageActivityPeriod {
+        activityPeriod ?? .last30Days
+    }
+
+    func activityBounds(reference: Date = Date(), calendar: Calendar = .current) -> UsageDateBounds? {
+        resolvedActivityPeriod.bounds(
+            reference: reference,
+            calendar: calendar,
+            customStart: activityStartDate,
+            customEnd: activityEndDate
+        )
     }
 
     var resolvedAdapters: [AdapterConfig] {
@@ -78,10 +101,6 @@ struct AppConfig: Codable {
 
     var resolvedAuthHeaderName: String {
         primaryAdapter.resolvedAuthHeaderName
-    }
-
-    var monitoringURL: URL? {
-        primaryAdapter.monitoringURL
     }
 
     func monitoringURLs(for sourceID: String) -> [URL] {
@@ -215,6 +234,7 @@ enum DisplayItem: String, Codable, CaseIterable {
     case latency
     case recent
     case trend
+    case activity
     case topModel
     case topApiKey
     case refreshedAt
@@ -226,6 +246,7 @@ enum DisplayItem: String, Codable, CaseIterable {
         .latency,
         .recent,
         .trend,
+        .activity,
         .topModel,
         .topApiKey,
         .refreshedAt
@@ -330,6 +351,7 @@ struct UsageSnapshot {
     var scope: UsageScope
     var recent: UsageScope
     var trendPoints: [UsageTrendPoint]
+    var activityPoints: [UsageTrendPoint]
     var topModels: [UsageRankingRow]
     var topApiKeys: [UsageRankingRow]
     var refreshedAt: Date
@@ -393,6 +415,7 @@ enum MonitorError: LocalizedError {
     case unsupportedPlatform(MonitorPlatform)
     case noAdaptersConfigured
     case allAdaptersFailed(String)
+    case invalidActivityDateRange
 
     var errorDescription: String? {
         switch self {
@@ -411,6 +434,8 @@ enum MonitorError: LocalizedError {
             return "No adapters configured"
         case .allAdaptersFailed(let message):
             return "All adapters failed: \(message)"
+        case .invalidActivityDateRange:
+            return "Invalid activity date range"
         }
     }
 }

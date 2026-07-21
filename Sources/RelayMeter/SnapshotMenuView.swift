@@ -3,6 +3,9 @@ import AppKit
 final class SnapshotMenuView: NSView {
     private let contentWidth: CGFloat = 380
     private let onRangeSelected: ((UsageTimeRange) -> Void)?
+    private let onActivityPeriodSelected: ((UsageActivityPeriod) -> Void)?
+    private let onActivityGranularitySelected: ((UsageActivityGranularity) -> Void)?
+    private let selectedActivityGranularity: UsageActivityGranularity
     private let onSourceSelected: ((String) -> Void)?
     private let onRefresh: (() -> Void)?
     private let onOpenMonitoring: (() -> Void)?
@@ -12,12 +15,18 @@ final class SnapshotMenuView: NSView {
         snapshot: UsageSnapshot,
         config: AppConfig?,
         texts: TextBundle,
+        selectedActivityGranularity: UsageActivityGranularity = .daily,
         onRangeSelected: ((UsageTimeRange) -> Void)? = nil,
+        onActivityPeriodSelected: ((UsageActivityPeriod) -> Void)? = nil,
+        onActivityGranularitySelected: ((UsageActivityGranularity) -> Void)? = nil,
         onSourceSelected: ((String) -> Void)? = nil,
         onRefresh: (() -> Void)? = nil,
         onOpenMonitoring: (() -> Void)? = nil
     ) {
         self.onRangeSelected = onRangeSelected
+        self.onActivityPeriodSelected = onActivityPeriodSelected
+        self.onActivityGranularitySelected = onActivityGranularitySelected
+        self.selectedActivityGranularity = selectedActivityGranularity
         self.onSourceSelected = onSourceSelected
         self.onRefresh = onRefresh
         self.onOpenMonitoring = onOpenMonitoring
@@ -31,12 +40,18 @@ final class SnapshotMenuView: NSView {
         config: AppConfig?,
         texts: TextBundle,
         selectedSourceID: String = UsageDashboardSnapshot.aggregateSourceID,
+        selectedActivityGranularity: UsageActivityGranularity = .daily,
         onRangeSelected: ((UsageTimeRange) -> Void)? = nil,
+        onActivityPeriodSelected: ((UsageActivityPeriod) -> Void)? = nil,
+        onActivityGranularitySelected: ((UsageActivityGranularity) -> Void)? = nil,
         onSourceSelected: ((String) -> Void)? = nil,
         onRefresh: (() -> Void)? = nil,
         onOpenMonitoring: (() -> Void)? = nil
     ) {
         self.onRangeSelected = onRangeSelected
+        self.onActivityPeriodSelected = onActivityPeriodSelected
+        self.onActivityGranularitySelected = onActivityGranularitySelected
+        self.selectedActivityGranularity = selectedActivityGranularity
         self.onSourceSelected = onSourceSelected
         self.onRefresh = onRefresh
         self.onOpenMonitoring = onOpenMonitoring
@@ -54,7 +69,10 @@ final class SnapshotMenuView: NSView {
         config: AppConfig?,
         selectedRange: UsageTimeRange,
         selectedSourceID: String = UsageDashboardSnapshot.aggregateSourceID,
+        selectedActivityGranularity: UsageActivityGranularity = .daily,
         onRangeSelected: ((UsageTimeRange) -> Void)? = nil,
+        onActivityPeriodSelected: ((UsageActivityPeriod) -> Void)? = nil,
+        onActivityGranularitySelected: ((UsageActivityGranularity) -> Void)? = nil,
         onSourceSelected: ((String) -> Void)? = nil,
         onRefresh: (() -> Void)? = nil,
         onOpenMonitoring: (() -> Void)? = nil
@@ -67,6 +85,7 @@ final class SnapshotMenuView: NSView {
             scope: UsageScope(),
             recent: UsageScope(),
             trendPoints: [],
+            activityPoints: [],
             topModels: [],
             topApiKeys: [],
             refreshedAt: Date()
@@ -83,7 +102,10 @@ final class SnapshotMenuView: NSView {
             config: config,
             texts: texts,
             selectedSourceID: selectedSourceID,
+            selectedActivityGranularity: selectedActivityGranularity,
             onRangeSelected: onRangeSelected,
+            onActivityPeriodSelected: onActivityPeriodSelected,
+            onActivityGranularitySelected: onActivityGranularitySelected,
             onSourceSelected: onSourceSelected,
             onRefresh: onRefresh,
             onOpenMonitoring: onOpenMonitoring
@@ -120,6 +142,10 @@ final class SnapshotMenuView: NSView {
             root.addArrangedSubview(trendCard(snapshot: selectedSnapshot, texts: texts))
         }
 
+        if enabled.contains(.activity), let config, let bounds = config.activityBounds() {
+            root.addArrangedSubview(activityCard(snapshot: selectedSnapshot, config: config, bounds: bounds, texts: texts))
+        }
+
         finalizeLayout(root: root)
     }
 
@@ -139,6 +165,10 @@ final class SnapshotMenuView: NSView {
 
         if enabled.contains(.trend) {
             root.addArrangedSubview(trendCard(snapshot: snapshot, texts: texts))
+        }
+
+        if enabled.contains(.activity), let config, let bounds = config.activityBounds() {
+            root.addArrangedSubview(activityCard(snapshot: snapshot, config: config, bounds: bounds, texts: texts))
         }
 
         finalizeLayout(root: root)
@@ -172,7 +202,7 @@ final class SnapshotMenuView: NSView {
     }
 
     private func header(snapshot: UsageSnapshot, title: String, dashboard: UsageDashboardSnapshot?, selectedSourceID: String, config: AppConfig?, enabled: Set<DisplayItem>, texts: TextBundle) -> NSView {
-        let card = RoundedPanelView(accentColor: menuHealthColor(snapshot.health), fillAlpha: 0.08)
+        let card = RoundedPanelView(accentColor: RelayTheme.healthColor(snapshot.health), fillAlpha: 0.08)
         card.translatesAutoresizingMaskIntoConstraints = false
         card.widthAnchor.constraint(equalToConstant: contentWidth - 24).isActive = true
 
@@ -281,7 +311,7 @@ final class SnapshotMenuView: NSView {
 
     private func healthIndicator(snapshot: UsageSnapshot, config: AppConfig?) -> NSView {
         let label = snapshot.health.label(language: currentLanguage(config: config))
-        let dot = StatusDotView(color: menuHealthColor(snapshot.health))
+        let dot = StatusDotView(color: RelayTheme.healthColor(snapshot.health))
         dot.toolTip = label
         dot.setAccessibilityLabel(label)
         dot.translatesAutoresizingMaskIntoConstraints = false
@@ -297,6 +327,18 @@ final class SnapshotMenuView: NSView {
             selectedIndex: selectedIndex,
             target: self,
             action: #selector(selectRangeButton)
+        )
+    }
+
+    private func activityCard(snapshot: UsageSnapshot, config: AppConfig, bounds: UsageDateBounds, texts: TextBundle) -> NSView {
+        ActivityMenuCardView(
+            points: snapshot.activityPoints,
+            period: config.resolvedActivityPeriod,
+            bounds: bounds,
+            granularity: selectedActivityGranularity,
+            texts: texts,
+            onPeriodSelected: { [weak self] in self?.onActivityPeriodSelected?($0) },
+            onGranularitySelected: { [weak self] in self?.onActivityGranularitySelected?($0) }
         )
     }
 

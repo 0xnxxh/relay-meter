@@ -19,6 +19,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private var settingsWindow: SettingsWindowController?
     var lastSnapshot: UsageDashboardSnapshot?
     private var selectedSnapshotSourceID = UsageDashboardSnapshot.aggregateSourceID
+    private var selectedActivityGranularity = UsageActivityGranularity.daily
     private var mainPanel: NSPanel?
     private var panelContentView: NSStackView?
     private var snapshotView: SnapshotMenuView?
@@ -254,13 +255,13 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         let texts = TextBundle.forLanguage(config?.resolvedLanguage ?? .english)
         let aggregate = snapshot.aggregate
         switch config?.resolvedTitleMetric ?? .requests {
-        case .tokens: return title(snapshot, formatCompact(aggregate.scope.totalTokens))
-        case .failures: return title(snapshot, "\(formatCompact(aggregate.scope.failureCount)) \(texts.failures)")
-        case .successRate: return title(snapshot, formatPercent(aggregate.scope.successRate))
+        case .tokens: return title(snapshot, MenuValueFormatter.compact(aggregate.scope.totalTokens))
+        case .failures: return title(snapshot, "\(MenuValueFormatter.compact(aggregate.scope.failureCount)) \(texts.failures)")
+        case .successRate: return title(snapshot, MenuValueFormatter.percent(aggregate.scope.successRate))
         case .latency: return title(snapshot, aggregate.scope.avgLatencyMs.map(MenuValueFormatter.duration) ?? "--")
-        case .cache: return title(snapshot, "\(formatCompact(aggregate.scope.cacheTokens)) \(texts.cacheUnit)")
-        case .recent: return title(snapshot, "\(formatCompact(aggregate.recent.totalRequests)) / \(texts.last15m)")
-        case .requests: return title(snapshot, "\(formatCompact(aggregate.scope.totalRequests)) / \(formatPercent(aggregate.scope.successRate))")
+        case .cache: return title(snapshot, "\(MenuValueFormatter.compact(aggregate.scope.cacheTokens)) \(texts.cacheUnit)")
+        case .recent: return title(snapshot, "\(MenuValueFormatter.compact(aggregate.recent.totalRequests)) / \(texts.last15m)")
+        case .requests: return title(snapshot, "\(MenuValueFormatter.compact(aggregate.scope.totalRequests)) / \(MenuValueFormatter.percent(aggregate.scope.successRate))")
         }
     }
 
@@ -270,7 +271,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
 
     private func renderMenuTitle(for snapshot: UsageDashboardSnapshot) {
         let attributed = NSMutableAttributedString(string: menuTitle(for: snapshot))
-        attributed.addAttribute(.foregroundColor, value: menuHealthColor(snapshot.health), range: NSRange(location: 0, length: 1))
+        attributed.addAttribute(.foregroundColor, value: RelayTheme.healthColor(snapshot.health), range: NSRange(location: 0, length: 1))
         attributed.addAttribute(.foregroundColor, value: RelayTheme.text, range: NSRange(location: 2, length: attributed.length - 2))
         statusItem.button?.attributedTitle = attributed
         statusItem.button?.toolTip = "\(snapshot.health.label(language: config?.resolvedLanguage ?? .english)) · \(snapshot.adapters.count) adapters"
@@ -285,6 +286,8 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         let texts = TextBundle.forLanguage(config?.resolvedLanguage ?? .english)
         let selectRange: (UsageTimeRange) -> Void = { [weak self] in self?.selectTimeRangeTab($0) }
         let selectSource: (String) -> Void = { [weak self] in self?.selectSnapshotSource($0) }
+        let selectActivityPeriod: (UsageActivityPeriod) -> Void = { [weak self] in self?.selectActivityPeriod($0) }
+        let selectActivityGranularity: (UsageActivityGranularity) -> Void = { [weak self] in self?.selectActivityGranularity($0) }
         let refresh: () -> Void = { [weak self] in self?.refreshNow() }
         let openMonitoring: () -> Void = { [weak self] in self?.openMonitoringPage() }
         if let lastSnapshot {
@@ -293,7 +296,10 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
                 config: config,
                 texts: texts,
                 selectedSourceID: selectedSnapshotSourceID,
+                selectedActivityGranularity: selectedActivityGranularity,
                 onRangeSelected: selectRange,
+                onActivityPeriodSelected: selectActivityPeriod,
+                onActivityGranularitySelected: selectActivityGranularity,
                 onSourceSelected: selectSource,
                 onRefresh: refresh,
                 onOpenMonitoring: openMonitoring
@@ -304,7 +310,10 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
                 config: config,
                 selectedRange: config?.resolvedTimeRange ?? .today,
                 selectedSourceID: selectedSnapshotSourceID,
+                selectedActivityGranularity: selectedActivityGranularity,
                 onRangeSelected: selectRange,
+                onActivityPeriodSelected: selectActivityPeriod,
+                onActivityGranularitySelected: selectActivityGranularity,
                 onSourceSelected: selectSource,
                 onRefresh: refresh,
                 onOpenMonitoring: openMonitoring
@@ -436,6 +445,102 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func selectActivityGranularity(_ granularity: UsageActivityGranularity) {
+        guard selectedActivityGranularity != granularity else { return }
+        selectedActivityGranularity = granularity
+        renderSnapshotMenuView()
+        logger.info("activity granularity selected value=\(granularity.rawValue)")
+    }
+
+    private func selectActivityPeriod(_ period: UsageActivityPeriod) {
+        guard var nextConfig = config else { return }
+        if period == .custom {
+            guard let dates = requestCustomActivityDates(config: nextConfig) else {
+                renderSnapshotMenuView()
+                return
+            }
+            nextConfig.activityStartDate = dates.start
+            nextConfig.activityEndDate = dates.end
+        }
+        guard nextConfig.resolvedActivityPeriod != period || period == .custom else { return }
+        nextConfig.activityPeriod = period
+        saveActivityConfig(nextConfig)
+    }
+
+    private func saveActivityConfig(_ nextConfig: AppConfig) {
+        do {
+            isSavingConfig = true
+            try configStore.save(nextConfig)
+            isSavingConfig = false
+            config = nextConfig
+            client = UsageClient(config: nextConfig, logger: logger)
+            refreshGeneration += 1
+            lastSnapshot = nil
+            logger.info("activity period selected value=\(nextConfig.resolvedActivityPeriod.rawValue)")
+            let texts = TextBundle.forLanguage(nextConfig.resolvedLanguage)
+            statusItem.button?.title = "RM \(texts.loading)"
+            renderSnapshotMenuView()
+            refreshNow()
+        } catch {
+            isSavingConfig = false
+            logger.error("activity period save failed \(error.localizedDescription)")
+            showError(error.localizedDescription)
+        }
+    }
+
+    private func requestCustomActivityDates(config: AppConfig) -> UsageDateBounds? {
+        let texts = TextBundle.forLanguage(config.resolvedLanguage)
+        let defaults = UsageActivityPeriod.last30Days.bounds()!
+        let startPicker = activityDatePicker(date: config.activityStartDate ?? defaults.start)
+        let endPicker = activityDatePicker(date: config.activityEndDate ?? defaults.end)
+        let form = NSGridView(views: [
+            [menuLabel(texts.activityFrom, size: 11, weight: .bold, color: RelayTheme.muted), startPicker],
+            [menuLabel(texts.activityTo, size: 11, weight: .bold, color: RelayTheme.muted), endPicker]
+        ])
+        form.rowSpacing = 8
+        form.columnSpacing = 10
+
+        let alert = NSAlert()
+        alert.messageText = texts.activityCustom.replacingOccurrences(of: "...", with: "")
+        alert.accessoryView = form
+        alert.addButton(withTitle: texts.apply)
+        alert.addButton(withTitle: texts.cancel)
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: startPicker.dateValue)
+        let end = calendar.startOfDay(for: endPicker.dateValue)
+        guard start <= end else {
+            showActivityRangeError(texts.activityRangeInvalid, texts: texts)
+            return nil
+        }
+        guard (calendar.dateComponents([.day], from: start, to: end).day ?? 0) <= 365 else {
+            showActivityRangeError(texts.activityRangeTooLong, texts: texts)
+            return nil
+        }
+        return UsageDateBounds(start: start, end: end)
+    }
+
+    private func activityDatePicker(date: Date) -> NSDatePicker {
+        let picker = NSDatePicker()
+        picker.datePickerStyle = .textFieldAndStepper
+        picker.datePickerElements = .yearMonthDay
+        picker.dateValue = date
+        picker.maxDate = Date()
+        picker.translatesAutoresizingMaskIntoConstraints = false
+        picker.widthAnchor.constraint(equalToConstant: 140).isActive = true
+        return picker
+    }
+
+    private func showActivityRangeError(_ message: String, texts: TextBundle) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = texts.error
+        alert.informativeText = message
+        alert.runModal()
+    }
+
     private func selectSnapshotSource(_ sourceID: String) {
         selectedSnapshotSourceID = sourceID
         renderSnapshotMenuView()
@@ -483,10 +588,6 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
             showError(error.localizedDescription)
         }
     }
-
-    private func formatPercent(_ value: Double) -> String { MenuValueFormatter.percent(value) }
-
-    private func formatCompact(_ value: Int) -> String { MenuValueFormatter.compact(value) }
 
     @objc private func openMonitoringPage() {
         for url in config?.monitoringURLs(for: selectedSnapshotSourceID) ?? [] {

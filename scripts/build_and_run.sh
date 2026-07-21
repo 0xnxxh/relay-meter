@@ -101,6 +101,7 @@ compile_release_binary() {
     -Xlinker "@executable_path/../Frameworks" \
     "$ROOT_DIR/Sources/RelayMeter/AppLogger.swift" \
     "$ROOT_DIR/Sources/RelayMeter/Models.swift" \
+    "$ROOT_DIR/Sources/RelayMeter/UsageActivity.swift" \
     "$ROOT_DIR/Sources/RelayMeter/Localization.swift" \
     "$ROOT_DIR/Sources/RelayMeter/ConfigStore.swift" \
     "$ROOT_DIR/Sources/RelayMeter/DebugSummary.swift" \
@@ -109,10 +110,10 @@ compile_release_binary() {
     "$ROOT_DIR/Sources/RelayMeter/MenuCardComponents.swift" \
     "$ROOT_DIR/Sources/RelayMeter/RankingMenuCardView.swift" \
     "$ROOT_DIR/Sources/RelayMeter/TrendMenuCardView.swift" \
+    "$ROOT_DIR/Sources/RelayMeter/ActivityMenuCardView.swift" \
     "$ROOT_DIR/Sources/RelayMeter/SnapshotMenuView.swift" \
     "$ROOT_DIR/Sources/RelayMeter/SettingsWindow.swift" \
     "$ROOT_DIR/Sources/RelayMeter/main.swift" \
-    "$ROOT_DIR/Sources/RelayMeter/MenuDelegate.swift" \
     -o "$RELEASE_BINARY"
   echo "$RELEASE_BINARY"
 }
