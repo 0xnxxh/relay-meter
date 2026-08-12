@@ -844,7 +844,7 @@ private final class PixelSecureTextFieldCell: NSSecureTextFieldCell {
     }
 }
 
-private final class PixelPopupButton: NSButton {
+final class PixelPopupButton: NSButton {
     struct Item {
         let title: String
         let representedObject: Any?
@@ -928,6 +928,10 @@ private final class PixelPopupButton: NSButton {
     }
 
     override func mouseDown(with event: NSEvent) {
+        togglePopup()
+    }
+
+    override func performClick(_ sender: Any?) {
         togglePopup()
     }
 

@@ -44,7 +44,7 @@ struct AppConfig: Codable {
         titleMetric: .requests,
         listItems: DisplayItem.defaultItems,
         timeRange: .today,
-        activityPeriod: .last30Days,
+        activityPeriod: .lastYear,
         activityStartDate: nil,
         activityEndDate: nil
     )
@@ -75,15 +75,15 @@ struct AppConfig: Codable {
     }
 
     var resolvedActivityPeriod: UsageActivityPeriod {
-        activityPeriod ?? .last30Days
+        .lastYear
     }
 
     func activityBounds(reference: Date = Date(), calendar: Calendar = .current) -> UsageDateBounds? {
-        resolvedActivityPeriod.bounds(
+        UsageActivityPeriod.lastYear.bounds(
             reference: reference,
             calendar: calendar,
-            customStart: activityStartDate,
-            customEnd: activityEndDate
+            customStart: nil,
+            customEnd: nil
         )
     }
 
@@ -343,6 +343,45 @@ struct UsageTrendPoint {
     var tokens: Int
 }
 
+struct NewAPIActivityRow: Decodable {
+    var createdAt: Int
+    var count: Int
+    var tokenUsed: Int
+}
+
+enum UsageActivityDayState: Equatable {
+    case observed
+    case knownZero
+    case partial
+    case unknown
+}
+
+enum UsageActivityAvailability: Equatable {
+    case complete
+    case partial
+    case unavailable
+}
+
+enum UsageActivityUnavailableReason: Equatable {
+    case dataExportDisabled
+    case requestFailed
+}
+
+struct UsageActivityDay: Equatable {
+    let start: Date
+    var requests: Int
+    var failures: Int
+    var tokens: Int
+    var state: UsageActivityDayState
+}
+
+struct UsageActivityDataset {
+    let bounds: UsageDateBounds
+    var days: [UsageActivityDay]
+    var availability: UsageActivityAvailability
+    var unavailableReason: UsageActivityUnavailableReason?
+}
+
 struct UsageSnapshot {
     var sourceID: String
     var sourceName: String
@@ -351,7 +390,7 @@ struct UsageSnapshot {
     var scope: UsageScope
     var recent: UsageScope
     var trendPoints: [UsageTrendPoint]
-    var activityPoints: [UsageTrendPoint]
+    var activity: UsageActivityDataset
     var topModels: [UsageRankingRow]
     var topApiKeys: [UsageRankingRow]
     var refreshedAt: Date

@@ -17,9 +17,9 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     var config: AppConfig?
     private var refreshTimer: Timer?
     private var settingsWindow: SettingsWindowController?
+    private var activityWindow: ActivityWindowController?
     var lastSnapshot: UsageDashboardSnapshot?
     private var selectedSnapshotSourceID = UsageDashboardSnapshot.aggregateSourceID
-    private var selectedActivityGranularity = UsageActivityGranularity.daily
     private var mainPanel: NSPanel?
     private var panelContentView: NSStackView?
     private var snapshotView: SnapshotMenuView?
@@ -286,20 +286,17 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         let texts = TextBundle.forLanguage(config?.resolvedLanguage ?? .english)
         let selectRange: (UsageTimeRange) -> Void = { [weak self] in self?.selectTimeRangeTab($0) }
         let selectSource: (String) -> Void = { [weak self] in self?.selectSnapshotSource($0) }
-        let selectActivityPeriod: (UsageActivityPeriod) -> Void = { [weak self] in self?.selectActivityPeriod($0) }
-        let selectActivityGranularity: (UsageActivityGranularity) -> Void = { [weak self] in self?.selectActivityGranularity($0) }
         let refresh: () -> Void = { [weak self] in self?.refreshNow() }
         let openMonitoring: () -> Void = { [weak self] in self?.openMonitoringPage() }
+        let openActivityDetails: () -> Void = { [weak self] in self?.openActivityDetails() }
         if let lastSnapshot {
             snapshotView = SnapshotMenuView(
                 dashboard: lastSnapshot,
                 config: config,
                 texts: texts,
                 selectedSourceID: selectedSnapshotSourceID,
-                selectedActivityGranularity: selectedActivityGranularity,
                 onRangeSelected: selectRange,
-                onActivityPeriodSelected: selectActivityPeriod,
-                onActivityGranularitySelected: selectActivityGranularity,
+                onOpenActivityDetails: openActivityDetails,
                 onSourceSelected: selectSource,
                 onRefresh: refresh,
                 onOpenMonitoring: openMonitoring
@@ -310,10 +307,8 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
                 config: config,
                 selectedRange: config?.resolvedTimeRange ?? .today,
                 selectedSourceID: selectedSnapshotSourceID,
-                selectedActivityGranularity: selectedActivityGranularity,
                 onRangeSelected: selectRange,
-                onActivityPeriodSelected: selectActivityPeriod,
-                onActivityGranularitySelected: selectActivityGranularity,
+                onOpenActivityDetails: openActivityDetails,
                 onSourceSelected: selectSource,
                 onRefresh: refresh,
                 onOpenMonitoring: openMonitoring
@@ -445,102 +440,6 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func selectActivityGranularity(_ granularity: UsageActivityGranularity) {
-        guard selectedActivityGranularity != granularity else { return }
-        selectedActivityGranularity = granularity
-        renderSnapshotMenuView()
-        logger.info("activity granularity selected value=\(granularity.rawValue)")
-    }
-
-    private func selectActivityPeriod(_ period: UsageActivityPeriod) {
-        guard var nextConfig = config else { return }
-        if period == .custom {
-            guard let dates = requestCustomActivityDates(config: nextConfig) else {
-                renderSnapshotMenuView()
-                return
-            }
-            nextConfig.activityStartDate = dates.start
-            nextConfig.activityEndDate = dates.end
-        }
-        guard nextConfig.resolvedActivityPeriod != period || period == .custom else { return }
-        nextConfig.activityPeriod = period
-        saveActivityConfig(nextConfig)
-    }
-
-    private func saveActivityConfig(_ nextConfig: AppConfig) {
-        do {
-            isSavingConfig = true
-            try configStore.save(nextConfig)
-            isSavingConfig = false
-            config = nextConfig
-            client = UsageClient(config: nextConfig, logger: logger)
-            refreshGeneration += 1
-            lastSnapshot = nil
-            logger.info("activity period selected value=\(nextConfig.resolvedActivityPeriod.rawValue)")
-            let texts = TextBundle.forLanguage(nextConfig.resolvedLanguage)
-            statusItem.button?.title = "RM \(texts.loading)"
-            renderSnapshotMenuView()
-            refreshNow()
-        } catch {
-            isSavingConfig = false
-            logger.error("activity period save failed \(error.localizedDescription)")
-            showError(error.localizedDescription)
-        }
-    }
-
-    private func requestCustomActivityDates(config: AppConfig) -> UsageDateBounds? {
-        let texts = TextBundle.forLanguage(config.resolvedLanguage)
-        let defaults = UsageActivityPeriod.last30Days.bounds()!
-        let startPicker = activityDatePicker(date: config.activityStartDate ?? defaults.start)
-        let endPicker = activityDatePicker(date: config.activityEndDate ?? defaults.end)
-        let form = NSGridView(views: [
-            [menuLabel(texts.activityFrom, size: 11, weight: .bold, color: RelayTheme.muted), startPicker],
-            [menuLabel(texts.activityTo, size: 11, weight: .bold, color: RelayTheme.muted), endPicker]
-        ])
-        form.rowSpacing = 8
-        form.columnSpacing = 10
-
-        let alert = NSAlert()
-        alert.messageText = texts.activityCustom.replacingOccurrences(of: "...", with: "")
-        alert.accessoryView = form
-        alert.addButton(withTitle: texts.apply)
-        alert.addButton(withTitle: texts.cancel)
-        NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
-
-        let calendar = Calendar.current
-        let start = calendar.startOfDay(for: startPicker.dateValue)
-        let end = calendar.startOfDay(for: endPicker.dateValue)
-        guard start <= end else {
-            showActivityRangeError(texts.activityRangeInvalid, texts: texts)
-            return nil
-        }
-        guard (calendar.dateComponents([.day], from: start, to: end).day ?? 0) <= 365 else {
-            showActivityRangeError(texts.activityRangeTooLong, texts: texts)
-            return nil
-        }
-        return UsageDateBounds(start: start, end: end)
-    }
-
-    private func activityDatePicker(date: Date) -> NSDatePicker {
-        let picker = NSDatePicker()
-        picker.datePickerStyle = .textFieldAndStepper
-        picker.datePickerElements = .yearMonthDay
-        picker.dateValue = date
-        picker.maxDate = Date()
-        picker.translatesAutoresizingMaskIntoConstraints = false
-        picker.widthAnchor.constraint(equalToConstant: 140).isActive = true
-        return picker
-    }
-
-    private func showActivityRangeError(_ message: String, texts: TextBundle) {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = texts.error
-        alert.informativeText = message
-        alert.runModal()
-    }
-
     private func selectSnapshotSource(_ sourceID: String) {
         selectedSnapshotSourceID = sourceID
         renderSnapshotMenuView()
@@ -593,6 +492,19 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         for url in config?.monitoringURLs(for: selectedSnapshotSourceID) ?? [] {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    @objc private func openActivityDetails() {
+        guard let dashboard = lastSnapshot else { return }
+        let controller = ActivityWindowController(
+            dashboard: dashboard,
+            selectedSourceID: selectedSnapshotSourceID,
+            texts: TextBundle.forLanguage(config?.resolvedLanguage ?? .english)
+        )
+        activityWindow = controller
+        hideMainPanel()
+        controller.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func checkForUpdates() {

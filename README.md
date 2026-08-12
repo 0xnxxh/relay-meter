@@ -49,18 +49,21 @@ Relay Meter has dedicated adapters for these projects:
 
 | Platform | Project | Auth | Data path |
 | --- | --- | --- | --- |
-| `cliproxyapiPro` | [ssfun/CLIProxyAPI-Pro](https://github.com/ssfun/CLIProxyAPI-Pro) | `Authorization: Bearer <managementKey>` | `GET /v0/management/usage/aggregates` |
-| `sub2api` | [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) | `x-api-key: <managementKey>` by default, or admin JWT with `Authorization: Bearer ...` if overridden | `GET /api/v1/admin/dashboard/stats`, `trend`, `models`, and `api-keys-trend` |
-| `newApi` | [QuantumNous/new-api](https://github.com/QuantumNous/new-api) | `Authorization: <access-token>` plus `New-Api-User: <newApiUserID>` | `GET /api/log/` with local aggregation |
+| `cliproxyapiPro` | [ssfun/CLIProxyAPI-Pro](https://github.com/ssfun/CLIProxyAPI-Pro) | `Authorization: Bearer <managementKey>` | `GET /v0/management/usage/aggregates`, including daily heatmap buckets |
+| `sub2api` | [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) | `x-api-key: <managementKey>` by default, or admin JWT with `Authorization: Bearer ...` if overridden | `GET /api/v1/admin/dashboard/stats`, `trend`, `models`, and `api-keys-trend`; the heatmap uses daily `trend` data |
+| `newApi` | [QuantumNous/new-api](https://github.com/QuantumNous/new-api) | `Authorization: <access-token>` plus `New-Api-User: <newApiUserID>` | `GET /api/log/` for cards and `GET /api/data/` for the heatmap |
 
 The current app was originally built around [ssfun/CLIProxyAPI-Pro](https://github.com/ssfun/CLIProxyAPI-Pro), so that link is intentionally kept explicit. `sub2api` and `new-api` expose different routes and response schemas, so they are integrated through separate adapters rather than by changing only `baseURL`.
 
-`newApi` support aggregates the latest fetched log page locally. If your instance has more than 200 records in the selected range, the top lists and trend chart reflect the newest 200 matching log rows.
+The Activity card shows the latest 13 calendar weeks with weeks as columns and Monday–Sunday as rows. The detail heatmap defaults to the current calendar year and can switch to a rolling year without another request; it also has source and Requests/Tokens controls. A successful aggregate response fills missing days with zero; request failures remain visibly unavailable, and a failed adapter makes the aggregate day partial rather than hiding the gap. Activity data is cached for five minutes.
+
+`cliproxyapiPro` exposes daily request and token aggregates directly. `sub2api` exposes successful request and token totals through its daily trend endpoint, so failed-request counts are not available in its heatmap. `newApi` requires `enable_data_export`; Relay Meter checks `/api/status` and reads `/api/data/` in monthly chunks. The other new-api cards still aggregate the newest 100 matching `/api/log/` rows.
 
 ### Use
 
 - Open `Settings` from the menu bar to edit config.
 - Use the range tabs to switch between today, 7 days, 30 days, and all retained logs.
+- Open `View Year` from the Activity card to switch between Calendar Year / Rolling Year and Requests / Tokens.
 - Use `Open Monitoring Page` on `All` to open every enabled adapter's monitoring page, or on an adapter tab to open that adapter's page.
 - Use `Check for Updates...` to check GitHub Releases for a newer version.
 
@@ -119,18 +122,21 @@ Relay Meter 已为这些项目提供独立 adapter：
 
 | 平台 | 项目 | 鉴权 | 数据接口 |
 | --- | --- | --- | --- |
-| `cliproxyapiPro` | [ssfun/CLIProxyAPI-Pro](https://github.com/ssfun/CLIProxyAPI-Pro) | `Authorization: Bearer <managementKey>` | `GET /v0/management/usage/aggregates` |
-| `sub2api` | [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) | 默认 `x-api-key: <managementKey>`；如覆盖为 `Authorization`，可使用管理员 JWT `Bearer ...` | `GET /api/v1/admin/dashboard/stats`、`trend`、`models`、`api-keys-trend` |
-| `newApi` | [QuantumNous/new-api](https://github.com/QuantumNous/new-api) | `Authorization: <access-token>` 加 `New-Api-User: <newApiUserID>` | `GET /api/log/`，应用侧本地聚合 |
+| `cliproxyapiPro` | [ssfun/CLIProxyAPI-Pro](https://github.com/ssfun/CLIProxyAPI-Pro) | `Authorization: Bearer <managementKey>` | `GET /v0/management/usage/aggregates`，包括热力图日聚合 |
+| `sub2api` | [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) | 默认 `x-api-key: <managementKey>`；如覆盖为 `Authorization`，可使用管理员 JWT `Bearer ...` | `GET /api/v1/admin/dashboard/stats`、`trend`、`models`、`api-keys-trend`；热力图使用日粒度 `trend` |
+| `newApi` | [QuantumNous/new-api](https://github.com/QuantumNous/new-api) | `Authorization: <access-token>` 加 `New-Api-User: <newApiUserID>` | 卡片使用 `GET /api/log/`，热力图使用 `GET /api/data/` |
 
 当前应用最初围绕 [ssfun/CLIProxyAPI-Pro](https://github.com/ssfun/CLIProxyAPI-Pro) 开发，因此 README 明确保留该项目链接。`sub2api` 和 `new-api` 的路由、鉴权和响应结构不同，所以不能只改 `baseURL`，必须走各自 adapter。
 
-`newApi` 支持会对最近获取到的日志页做本地聚合。如果所选范围内超过 200 条记录，排行榜和趋势图反映最新 200 条匹配日志。
+活跃度卡片展示最近 13 个日历周，以周为列、周一至周日为行。详情热力图默认显示当年 1 月 1 日至今天，也可切换到滚动一年，切换时无需再次请求；同时支持切换来源和“请求/Token”。聚合接口成功返回时，缺失日期按 0 填充；请求失败仍明确显示不可用，单个 adapter 失败时，聚合日期会标为“部分数据”。活跃度数据缓存 5 分钟。
+
+`cliproxyapiPro` 可直接提供按日请求数和 Token 聚合。`sub2api` 的日趋势只统计成功请求，因此其热力图无法提供失败请求数。`newApi` 需要开启 `enable_data_export`；Relay Meter 会先检查 `/api/status`，再按月读取 `/api/data/`。new-api 的其他卡片仍基于 `/api/log/` 最近 100 条匹配日志聚合。
 
 ### 使用
 
 - 在菜单栏中打开 `设置` 修改配置。
 - 使用时间范围标签切换今天、7 天、30 天和全部日志。
+- 从活跃度卡片打开“查看全年”，切换“日历年/滚动一年”和“请求/Token”。
 - 在 `总览` 使用 `打开监控页` 会打开所有启用 adapter 的监控页面；在单个 adapter 标签使用时只打开该 adapter 的监控页面。
 - 使用 `检查更新...` 从 GitHub Releases 检查新版本。
 

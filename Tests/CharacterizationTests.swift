@@ -4,11 +4,19 @@ import Foundation
 @main
 struct CharacterizationTests {
     @MainActor
-    static func main() {
+    static func main() async {
         testMenuValueFormatter()
         testHealthColors()
         testUsageActivityDateBounds()
+        testActivityDisplayModes()
         testUsageActivityAggregation()
+        testUsageActivityCoverage()
+        testUsageActivitySourceAggregation()
+        testUsageActivityQuantileIntensity()
+        testNewAPIActivityRowDecoding()
+        await testNewAPIActivityUsesAggregateEndpoint()
+        testActivityMenuLayout()
+        testActivityWindowLayout()
         testEnglishSettingsCopy()
         testChineseSettingsCopy()
         print("Characterization tests passed")
@@ -103,6 +111,223 @@ struct CharacterizationTests {
         expect(cumulative.map(\.tokens) == [350, 400], "cumulative activity must use daily running totals")
         expect(UsageActivitySeries.intensity(value: 0, maximum: 400) == 0, "zero usage must use the empty color")
         expect(UsageActivitySeries.intensity(value: 400, maximum: 400) == 4, "maximum usage must use the darkest color")
+    }
+
+    private static func testActivityDisplayModes() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let reference = date("2026-08-12T15:30:00Z")
+        let bounds = AppConfig.defaultConfig.activityBounds(reference: reference, calendar: calendar)
+        expect(bounds?.start == date("2025-08-12T00:00:00Z"), "activity fetch must cover the rolling year")
+        expect(bounds?.end == reference, "activity fetch must end at the reference time")
+        let dataset = UsageActivitySeries.dataset(points: [], bounds: bounds!, knownBounds: [bounds!], calendar: calendar)
+        let calendarYear = UsageActivityDisplayMode.calendarYear.dataset(from: dataset, calendar: calendar)
+        let rollingYear = UsageActivityDisplayMode.rollingYear.dataset(from: dataset, calendar: calendar)
+        expect(calendarYear.days.first?.start == date("2026-01-01T00:00:00Z"), "calendar-year display must start on January 1")
+        expect(rollingYear.days.first?.start == date("2025-08-12T00:00:00Z"), "rolling-year display must retain the trailing year")
+    }
+
+    private static func testUsageActivityCoverage() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let bounds = UsageDateBounds(
+            start: date("2026-07-01T00:00:00Z"),
+            end: date("2026-07-03T23:59:59Z")
+        )
+        let points = [
+            UsageTrendPoint(
+                bucketStartMs: milliseconds("2026-07-01T12:00:00Z"),
+                label: "",
+                requests: 3,
+                failures: 0,
+                tokens: 120
+            )
+        ]
+        let dataset = UsageActivitySeries.dataset(
+            points: points,
+            bounds: bounds,
+            knownBounds: [UsageDateBounds(
+                start: date("2026-07-01T00:00:00Z"),
+                end: date("2026-07-02T23:59:59Z")
+            )],
+            calendar: calendar
+        )
+
+        expect(dataset.availability == .partial, "activity with an uncovered day must be partial")
+        expect(dataset.days.map(\.state) == [.observed, .knownZero, .unknown], "missing and uncovered activity days must remain distinct")
+    }
+
+    private static func testUsageActivitySourceAggregation() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let bounds = UsageDateBounds(
+            start: date("2026-07-01T00:00:00Z"),
+            end: date("2026-07-02T23:59:59Z")
+        )
+        let first = UsageActivitySeries.dataset(
+            points: [UsageTrendPoint(bucketStartMs: milliseconds("2026-07-01T12:00:00Z"), label: "", requests: 2, failures: 0, tokens: 80)],
+            bounds: bounds,
+            knownBounds: [bounds],
+            calendar: calendar
+        )
+        let second = UsageActivitySeries.dataset(
+            points: [UsageTrendPoint(bucketStartMs: milliseconds("2026-07-02T12:00:00Z"), label: "", requests: 4, failures: 0, tokens: 160)],
+            bounds: bounds,
+            knownBounds: [UsageDateBounds(start: date("2026-07-02T00:00:00Z"), end: bounds.end)],
+            calendar: calendar
+        )
+        let aggregate = UsageActivitySeries.aggregateSources(
+            [first, second],
+            expectedSourceCount: 2,
+            calendar: calendar
+        )
+
+        expect(aggregate.days[0].requests == 2 && aggregate.days[0].state == .partial, "an uncovered source must make the aggregate day partial")
+        expect(aggregate.days[1].requests == 4 && aggregate.days[1].state == .observed, "fully covered aggregate days must remain observed")
+    }
+
+    private static func testUsageActivityQuantileIntensity() {
+        let values = [1, 2, 3, 100]
+        expect(UsageActivitySeries.intensity(value: 1, distribution: values) == 1, "lowest non-zero activity should use level one")
+        expect(UsageActivitySeries.intensity(value: 3, distribution: values) == 3, "a single outlier must not compress ordinary activity into level one")
+        expect(UsageActivitySeries.intensity(value: 100, distribution: values) == 4, "highest activity should use level four")
+    }
+
+    private static func testNewAPIActivityRowDecoding() {
+        let json = #"{"created_at":1782864000,"count":7,"token_used":321}"#.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let row = try! decoder.decode(NewAPIActivityRow.self, from: json)
+        expect(row.createdAt == 1_782_864_000, "new-api activity timestamp decoding changed")
+        expect(row.count == 7 && row.tokenUsed == 321, "new-api activity values must decode from the aggregate endpoint")
+    }
+
+    private static func testNewAPIActivityUsesAggregateEndpoint() async {
+        RequestStubURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RequestStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        var config = AppConfig.defaultConfig
+        let adapter = AdapterConfig(
+            id: "new-api-test",
+            name: "new-api Test",
+            enabled: true,
+            platform: .newApi,
+            baseURL: "https://new-api.test",
+            managementKey: "test-token",
+            authHeaderName: "Authorization",
+            newApiUserID: 1,
+            monitoringPath: "/"
+        )
+        config.adapters = [adapter]
+        config.platform = .newApi
+        config.baseURL = adapter.baseURL
+        config.managementKey = adapter.managementKey
+        config.newApiUserID = adapter.newApiUserID
+
+        let snapshot = try! await UsageClient(config: config, session: session).fetchSnapshot()
+        let requests = RequestStubURLProtocol.recordedRequests()
+        expect(requests.contains { $0.url?.path == "/api/status" }, "new-api activity must check data export status")
+        expect(requests.contains { $0.url?.path == "/api/data/" || $0.url?.path == "/api/data" }, "new-api activity must use the aggregate data endpoint")
+        let logRequests = requests.filter { $0.url?.path == "/api/log/" || $0.url?.path == "/api/log" }
+        expect(logRequests.count == 2, "new-api activity must not add a raw-log request")
+        expect(logRequests.allSatisfy { $0.url?.query?.contains("page_size=100") == true }, "new-api log requests must honor the upstream page limit")
+        expect(snapshot.activity.days.contains { $0.state == .observed }, "new-api aggregate rows must populate the activity dataset")
+    }
+
+    @MainActor
+    private static func testActivityMenuLayout() {
+        let dataset = previewActivityDataset()
+        let card = ActivityMenuCardView(
+            dataset: dataset,
+            texts: TextBundle.forLanguage(.english),
+            onOpenDetails: {}
+        )
+        card.setFrameSize(card.fittingSize)
+        card.layoutSubtreeIfNeeded()
+        expect(ActivityHeatmapView.compactColumnCount == 13, "compact activity heatmap must use thirteen week columns")
+        expect(ActivityHeatmapView.compactRowCount == 7, "compact activity heatmap must use seven weekday rows")
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let reference = date("2026-08-12T12:00:00Z")
+        let monday = ActivityHeatmapView.compactGridPosition(
+            for: date("2026-08-10T12:00:00Z"),
+            reference: reference,
+            calendar: calendar
+        )
+        let wednesday = ActivityHeatmapView.compactGridPosition(
+            for: reference,
+            reference: reference,
+            calendar: calendar
+        )
+        expect(monday?.column == 12 && monday?.row == 0, "compact activity weeks must run left to right")
+        expect(wednesday?.column == 12 && wednesday?.row == 2, "compact activity weekdays must run Monday to Sunday")
+        if let previewPath = ProcessInfo.processInfo.environment["RELAY_METER_ACTIVITY_CARD_PREVIEW_PATH"] {
+            render(card, to: previewPath)
+        }
+    }
+
+    @MainActor
+    private static func testActivityWindowLayout() {
+        let dataset = previewActivityDataset()
+        let snapshot = UsageSnapshot(
+            sourceID: "preview",
+            sourceName: "Preview",
+            platform: .cliproxyapiPro,
+            selectedRange: .thirtyDays,
+            scope: UsageScope(),
+            recent: UsageScope(),
+            trendPoints: [],
+            activity: dataset,
+            topModels: [],
+            topApiKeys: [],
+            refreshedAt: Date()
+        )
+        let dashboard = UsageDashboardSnapshot(
+            selectedRange: .thirtyDays,
+            aggregate: snapshot,
+            adapters: [snapshot],
+            errors: [],
+            refreshedAt: Date()
+        )
+        let controller = ActivityWindowController(
+            dashboard: dashboard,
+            selectedSourceID: UsageDashboardSnapshot.aggregateSourceID,
+            texts: TextBundle.forLanguage(.english)
+        )
+        guard let contentView = controller.window?.contentView else {
+            fatalError("activity window content view missing")
+        }
+        contentView.layoutSubtreeIfNeeded()
+        expect(controller.window?.frame.width == 820, "activity window width changed")
+        expect(controller.window?.titleVisibility == .hidden, "activity window system title must be hidden")
+        expect(controller.window?.titlebarAppearsTransparent == true, "activity window title bar must blend into the content")
+        expect(controller.window?.styleMask.contains(.fullSizeContentView) == true, "activity window content must extend through the title bar")
+        expect(contentView.fittingSize.height <= 300, "activity window content must fit without clipping")
+        expect(findButton(in: contentView, titled: "REQUESTS") != nil, "activity requests metric control missing")
+        expect(findButton(in: contentView, titled: "TOKENS") != nil, "activity tokens metric control missing")
+        expect(findButton(in: contentView, titled: "CALENDAR YEAR") != nil, "calendar-year activity control missing")
+        expect(findButton(in: contentView, titled: "ROLLING YEAR") != nil, "rolling-year activity control missing")
+        expect(findView(in: contentView) { $0 is PixelPopupButton } != nil, "activity source control must use the RelayTheme popup")
+        expect(findView(in: contentView) { $0 is NSPopUpButton } == nil, "activity source control must not use the system popup")
+        if let previewPath = ProcessInfo.processInfo.environment["RELAY_METER_ACTIVITY_PREVIEW_PATH"] {
+            render(contentView, to: previewPath)
+        }
+    }
+
+    private static func previewActivityDataset() -> UsageActivityDataset {
+        let bounds = UsageDateBounds(
+            start: date("2026-01-01T00:00:00Z"),
+            end: date("2026-08-12T23:59:59Z")
+        )
+        return UsageActivitySeries.dataset(
+            points: [
+                UsageTrendPoint(bucketStartMs: milliseconds("2026-08-11T12:00:00Z"), label: "", requests: 7, failures: 0, tokens: 420),
+                UsageTrendPoint(bucketStartMs: milliseconds("2026-08-12T12:00:00Z"), label: "", requests: 12, failures: 1, tokens: 960)
+            ],
+            bounds: bounds,
+            knownBounds: [bounds]
+        )
     }
 
     private static func date(_ value: String) -> Date {
@@ -201,6 +426,29 @@ struct CharacterizationTests {
         return nil
     }
 
+    @MainActor
+    private static func findView(in view: NSView, matching predicate: (NSView) -> Bool) -> NSView? {
+        if predicate(view) { return view }
+        for subview in view.subviews {
+            if let match = findView(in: subview, matching: predicate) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    @MainActor
+    private static func render(_ view: NSView, to path: String) {
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            fatalError("activity preview bitmap unavailable")
+        }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        guard let data = bitmap.representation(using: .png, properties: [:]) else {
+            fatalError("activity preview PNG encoding failed")
+        }
+        try! data.write(to: URL(fileURLWithPath: path))
+    }
+
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
         guard condition() else {
             fatalError(message)
@@ -211,5 +459,51 @@ struct CharacterizationTests {
         for value in expected {
             expect(actual.contains(value), "\(language) settings copy changed: \(value)")
         }
+    }
+}
+
+private final class RequestStubURLProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private static var requests: [URLRequest] = []
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.lock()
+        Self.requests.append(request)
+        Self.lock.unlock()
+        let path = request.url?.path ?? ""
+        let body: String
+        switch path {
+        case "/api/status":
+            body = #"{"success":true,"message":"","data":{"enable_data_export":true}}"#
+        case "/api/data/", "/api/data":
+            let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+            let timestamp = components?.queryItems?.first { $0.name == "start_timestamp" }?.value ?? "0"
+            body = #"{"success":true,"message":"","data":[{"created_at":\#(timestamp),"count":2,"token_used":40}]}"#
+        case "/api/log/", "/api/log":
+            body = #"{"success":true,"message":"","data":{"items":[]}}"#
+        default:
+            body = #"{"success":false,"message":"unexpected path","data":{}}"#
+        }
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+
+    static func reset() {
+        lock.lock()
+        requests = []
+        lock.unlock()
+    }
+
+    static func recordedRequests() -> [URLRequest] {
+        lock.lock()
+        defer { lock.unlock() }
+        return requests
     }
 }

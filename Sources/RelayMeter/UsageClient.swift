@@ -64,7 +64,11 @@ final class UsageClient {
             throw MonitorError.allAdaptersFailed(firstError.message)
         }
 
-        let aggregate = aggregateSnapshot(from: snapshots, range: config.resolvedTimeRange)
+        let aggregate = aggregateSnapshot(
+            from: snapshots,
+            range: config.resolvedTimeRange,
+            expectedActivitySourceCount: adapters.count
+        )
         logger.info("dashboard snapshot adapters=\(snapshots.count) errors=\(errors.count) requests=\(aggregate.scope.totalRequests)")
         return UsageDashboardSnapshot(
             selectedRange: config.resolvedTimeRange,
@@ -96,19 +100,13 @@ private struct CLIProxyAPIProUsageAdapter {
         let limit = aggregateLimit(range)
 
         async let today = fetchScope(fromMs: fromMs, interval: interval, limit: limit, groupBy: [])
-        async let activity = fetchScope(
-            fromMs: milliseconds(activityBounds.start),
-            toMs: milliseconds(activityBounds.end),
-            interval: "day",
-            limit: 2_000,
-            groupBy: []
-        )
+        async let activity = fetchActivity(bounds: activityBounds)
         async let recent = fetchScope(fromMs: minutesAgoMs(15), groupBy: [])
         async let models = fetchScope(fromMs: fromMs, interval: interval, limit: limit, groupBy: ["model"])
         async let apiKeys = fetchScope(fromMs: fromMs, interval: interval, limit: limit, groupBy: ["api_key_hash"])
 
         let todayBuckets = try await today
-        let activityBuckets = try await activity
+        let activityDataset = await activity
         let recentBuckets = try await recent
         let modelBuckets = try await models
         let apiKeyBuckets = try await apiKeys
@@ -122,7 +120,7 @@ private struct CLIProxyAPIProUsageAdapter {
             scope: summarize(todayBuckets),
             recent: summarize(recentBuckets),
             trendPoints: trendPoints(todayBuckets, range: range),
-            activityPoints: activityPoints(activityBuckets),
+            activity: activityDataset,
             topModels: rank(modelBuckets: modelBuckets, label: \.model),
             topApiKeys: rank(modelBuckets: apiKeyBuckets, label: \.apiKeyHash).map(maskHashRow),
             refreshedAt: Date()
@@ -130,6 +128,23 @@ private struct CLIProxyAPIProUsageAdapter {
     }
 
     private func fetchScope(fromMs: Int, toMs: Int = nowMs(), interval: String = "hour", limit: Int? = nil, groupBy: [String]) async throws -> [UsageAggregateBucket] {
+        try await fetchAggregate(
+            fromMs: fromMs,
+            toMs: toMs,
+            interval: interval,
+            limit: limit,
+            groupBy: groupBy
+        ).items
+    }
+
+    private func fetchAggregate(
+        fromMs: Int,
+        toMs: Int = nowMs(),
+        interval: String = "hour",
+        limit: Int? = nil,
+        groupBy: [String],
+        timezoneOffsetMinutes: Int? = nil
+    ) async throws -> AggregateResponse {
         guard var components = URLComponents(url: usageURL(path: "aggregates"), resolvingAgainstBaseURL: false) else {
             throw MonitorError.invalidBaseURL(config.baseURL)
         }
@@ -143,16 +158,45 @@ private struct CLIProxyAPIProUsageAdapter {
         if !groupBy.isEmpty {
             queryItems.append(URLQueryItem(name: "group_by", value: groupBy.joined(separator: ",")))
         }
+        if let timezoneOffsetMinutes {
+            queryItems.append(URLQueryItem(name: "timezone_offset_minutes", value: String(timezoneOffsetMinutes)))
+        }
         components.queryItems = queryItems
 
-        let response: AggregateResponse = try await requestJSON(
+        return try await requestJSON(
             components.url,
             auth: .platform(config: config),
             session: session,
             logger: logger,
             logName: "cliproxyapi-pro aggregates"
         )
-        return response.items
+    }
+
+    private func fetchActivity(bounds: UsageDateBounds) async -> UsageActivityDataset {
+        let cacheKey = activityCacheKey(config: config, bounds: bounds)
+        if let cached = await UsageActivityCache.shared.value(for: cacheKey) {
+            return cached
+        }
+        do {
+            let response = try await fetchAggregate(
+                fromMs: milliseconds(bounds.start),
+                toMs: milliseconds(bounds.end),
+                interval: "day",
+                limit: 2_000,
+                groupBy: [],
+                timezoneOffsetMinutes: TimeZone.current.secondsFromGMT() / 60
+            )
+            let dataset = UsageActivitySeries.dataset(
+                points: activityPoints(response.items),
+                bounds: bounds,
+                knownBounds: [bounds]
+            )
+            await UsageActivityCache.shared.store(dataset, for: cacheKey)
+            return dataset
+        } catch {
+            logger.error("cliproxyapi-pro activity failed \(error.localizedDescription)")
+            return UsageActivitySeries.unavailable(bounds: bounds, reason: .requestFailed)
+        }
     }
 
     private func usageURL(path: String) -> URL {
@@ -182,10 +226,10 @@ private struct Sub2APIUsageAdapter {
             throw MonitorError.invalidActivityDateRange
         }
         let query = dateRangeQuery(range)
-        let activityQuery = dateRangeQuery(activityBounds)
+        let activityQuery = dateRangeQuery(activityBounds, includeTimeZone: true)
         async let stats: Sub2APIEnvelope<Sub2APIStats> = get("/api/v1/admin/dashboard/stats")
         async let trend: Sub2APIEnvelope<Sub2APITrendPayload> = get("/api/v1/admin/dashboard/trend?\(query)&granularity=\(range == .today ? "hour" : "day")")
-        async let activity: Sub2APIEnvelope<Sub2APITrendPayload> = get("/api/v1/admin/dashboard/trend?\(activityQuery)&granularity=day")
+        async let activity = fetchActivity(bounds: activityBounds, query: activityQuery)
         async let models: Sub2APIEnvelope<Sub2APIModelsPayload> = get("/api/v1/admin/dashboard/models?\(query)&model_source=requested")
         async let apiKeys: Sub2APIEnvelope<Sub2APIAPIKeyTrendPayload> = get("/api/v1/admin/dashboard/api-keys-trend?\(query)&granularity=day&limit=3")
 
@@ -199,15 +243,7 @@ private struct Sub2APIUsageAdapter {
                 tokens: point.totalTokens
             )
         }
-        let activityPoints = try await activity.data.trend.map { point in
-            UsageTrendPoint(
-                bucketStartMs: parseSub2APIDateMs(point.date),
-                label: point.date,
-                requests: point.requests,
-                failures: 0,
-                tokens: point.totalTokens
-            )
-        }
+        let activityDataset = await activity
         let modelRows = try await models.data.models.map {
             UsageRankingRow(label: $0.model.ifEmpty("-"), requests: $0.requests, failures: 0, tokens: $0.totalTokens)
         }
@@ -224,7 +260,7 @@ private struct Sub2APIUsageAdapter {
             scope: statsData.scope(for: range),
             recent: statsData.recentScope(),
             trendPoints: trendPoints.sorted { $0.bucketStartMs < $1.bucketStartMs }.suffix(30).map { $0 },
-            activityPoints: activityPoints.sorted { $0.bucketStartMs < $1.bucketStartMs },
+            activity: activityDataset,
             topModels: modelRows.sortedForRanking().prefix(3).map { $0 },
             topApiKeys: apiKeyRows.sortedForRanking().prefix(3).map { $0 },
             refreshedAt: Date()
@@ -239,6 +275,37 @@ private struct Sub2APIUsageAdapter {
             logger: logger,
             logName: "sub2api \(path)"
         )
+    }
+
+    private func fetchActivity(bounds: UsageDateBounds, query: String) async -> UsageActivityDataset {
+        let cacheKey = activityCacheKey(config: config, bounds: bounds)
+        if let cached = await UsageActivityCache.shared.value(for: cacheKey) {
+            return cached
+        }
+        do {
+            let response: Sub2APIEnvelope<Sub2APITrendPayload> = try await get(
+                "/api/v1/admin/dashboard/trend?\(query)&granularity=day"
+            )
+            let points = response.data.trend.map { point in
+                UsageTrendPoint(
+                    bucketStartMs: parseSub2APIDateMs(point.date),
+                    label: point.date,
+                    requests: point.requests,
+                    failures: 0,
+                    tokens: point.totalTokens
+                )
+            }
+            let dataset = UsageActivitySeries.dataset(
+                points: points,
+                bounds: bounds,
+                knownBounds: [bounds]
+            )
+            await UsageActivityCache.shared.store(dataset, for: cacheKey)
+            return dataset
+        } catch {
+            logger.error("sub2api activity failed \(error.localizedDescription)")
+            return UsageActivitySeries.unavailable(bounds: bounds, reason: .requestFailed)
+        }
     }
 }
 
@@ -255,12 +322,12 @@ private struct NewAPIUsageAdapter {
         let fromSeconds = rangeStartMs(range) / 1_000
         let toSeconds = nowMs() / 1_000
 
-        async let logs: NewAPIEnvelope<NewAPILogPage> = get("/api/log/?type=2&start_timestamp=\(fromSeconds)&end_timestamp=\(toSeconds)&p=0&page_size=200")
-        async let activityLogs: NewAPIEnvelope<NewAPILogPage> = get("/api/log/?type=2&start_timestamp=\(seconds(activityBounds.start))&end_timestamp=\(seconds(activityBounds.end))&p=0&page_size=200")
-        async let recentLogs: NewAPIEnvelope<NewAPILogPage> = get("/api/log/?type=2&start_timestamp=\(minutesAgoMs(15) / 1_000)&end_timestamp=\(toSeconds)&p=0&page_size=200")
+        async let logs: NewAPIEnvelope<NewAPILogPage> = get("/api/log/?type=2&start_timestamp=\(fromSeconds)&end_timestamp=\(toSeconds)&p=0&page_size=100")
+        async let activity = fetchActivity(bounds: activityBounds)
+        async let recentLogs: NewAPIEnvelope<NewAPILogPage> = get("/api/log/?type=2&start_timestamp=\(minutesAgoMs(15) / 1_000)&end_timestamp=\(toSeconds)&p=0&page_size=100")
 
         let logItems = try await logs.data.items
-        let activityItems = try await activityLogs.data.items
+        let activityDataset = await activity
         let recentItems = try await recentLogs.data.items
         logger.info("new-api snapshot range=\(range.rawValue) logs=\(logItems.count) recent=\(recentItems.count)")
 
@@ -272,7 +339,7 @@ private struct NewAPIUsageAdapter {
             scope: scope(from: logItems),
             recent: scope(from: recentItems),
             trendPoints: trendPoints(from: logItems, range: range),
-            activityPoints: activityPoints(from: activityItems),
+            activity: activityDataset,
             topModels: ranking(from: logItems, key: \.modelName),
             topApiKeys: ranking(from: logItems, key: \.tokenName),
             refreshedAt: Date()
@@ -287,6 +354,54 @@ private struct NewAPIUsageAdapter {
             logger: logger,
             logName: "new-api \(path)"
         )
+    }
+
+    private func fetchActivity(bounds: UsageDateBounds) async -> UsageActivityDataset {
+        let cacheKey = activityCacheKey(config: config, bounds: bounds)
+        if let cached = await UsageActivityCache.shared.value(for: cacheKey) {
+            return cached
+        }
+
+        do {
+            let status: NewAPIEnvelope<NewAPIStatusData> = try await get("/api/status")
+            if status.data.enableDataExport == false {
+                let unavailable = UsageActivitySeries.unavailable(bounds: bounds, reason: .dataExportDisabled)
+                await UsageActivityCache.shared.store(unavailable, for: cacheKey)
+                return unavailable
+            }
+        } catch {
+            logger.error("new-api activity status failed \(error.localizedDescription)")
+            let unavailable = UsageActivitySeries.unavailable(bounds: bounds, reason: .requestFailed)
+            await UsageActivityCache.shared.store(unavailable, for: cacheKey)
+            return unavailable
+        }
+
+        let chunks = monthlyActivityBounds(bounds)
+        var points: [UsageTrendPoint] = []
+        var successfulChunks: [UsageDateBounds] = []
+        for chunk in chunks {
+            do {
+                let response: NewAPIEnvelope<[NewAPIActivityRow]> = try await get(
+                    "/api/data/?start_timestamp=\(seconds(chunk.start))&end_timestamp=\(seconds(chunk.end))"
+                )
+                guard response.success else {
+                    logger.error("new-api activity aggregate rejected")
+                    continue
+                }
+                points.append(contentsOf: activityPoints(from: response.data))
+                successfulChunks.append(chunk)
+            } catch {
+                logger.error("new-api activity aggregate failed \(error.localizedDescription)")
+            }
+        }
+        let dataset = UsageActivitySeries.dataset(
+            points: points,
+            bounds: bounds,
+            knownBounds: successfulChunks,
+            unavailableReason: successfulChunks.isEmpty ? .requestFailed : nil
+        )
+        await UsageActivityCache.shared.store(dataset, for: cacheKey)
+        return dataset
     }
 
     private func scope(from logs: [NewAPILog]) -> UsageScope {
@@ -329,10 +444,10 @@ private struct NewAPIUsageAdapter {
         return rowsByBucket.values.sorted { $0.bucketStartMs < $1.bucketStartMs }.suffix(30).map { $0 }
     }
 
-    private func activityPoints(from logs: [NewAPILog]) -> [UsageTrendPoint] {
+    private func activityPoints(from rows: [NewAPIActivityRow]) -> [UsageTrendPoint] {
         var rowsByBucket: [Int: UsageTrendPoint] = [:]
-        for log in logs {
-            let date = Date(timeIntervalSince1970: TimeInterval(log.createdAt))
+        for row in rows {
+            let date = Date(timeIntervalSince1970: TimeInterval(row.createdAt))
             let bucket = milliseconds(Calendar.current.startOfDay(for: date))
             let previous = rowsByBucket[bucket] ?? UsageTrendPoint(
                 bucketStartMs: bucket,
@@ -344,9 +459,9 @@ private struct NewAPIUsageAdapter {
             rowsByBucket[bucket] = UsageTrendPoint(
                 bucketStartMs: bucket,
                 label: previous.label,
-                requests: previous.requests + 1,
-                failures: previous.failures + (log.type == 5 ? 1 : 0),
-                tokens: previous.tokens + log.promptTokens + log.completionTokens
+                requests: previous.requests + row.count,
+                failures: previous.failures,
+                tokens: previous.tokens + row.tokenUsed
             )
         }
         return rowsByBucket.values.sorted { $0.bucketStartMs < $1.bucketStartMs }
@@ -491,10 +606,15 @@ private func dateRangeQuery(_ range: UsageTimeRange) -> String {
     return "start_date=\(formatter.string(from: start))&end_date=\(formatter.string(from: end))"
 }
 
-private func dateRangeQuery(_ bounds: UsageDateBounds) -> String {
+private func dateRangeQuery(_ bounds: UsageDateBounds, includeTimeZone: Bool = false) -> String {
     let formatter = DateFormatter()
     formatter.dateFormat = "yyyy-MM-dd"
-    return "start_date=\(formatter.string(from: bounds.start))&end_date=\(formatter.string(from: bounds.end))"
+    var query = "start_date=\(formatter.string(from: bounds.start))&end_date=\(formatter.string(from: bounds.end))"
+    if includeTimeZone,
+       let timeZone = TimeZone.current.identifier.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+        query += "&timezone=\(timeZone)"
+    }
+    return query
 }
 
 private func summarize(_ buckets: [UsageAggregateBucket]) -> UsageScope {
@@ -595,7 +715,11 @@ private func rankBuckets(_ buckets: [UsageAggregateBucket], label: (UsageAggrega
     return Array(rowsByLabel.values).sortedForRanking().prefix(3).map { $0 }
 }
 
-private func aggregateSnapshot(from snapshots: [UsageSnapshot], range: UsageTimeRange) -> UsageSnapshot {
+private func aggregateSnapshot(
+    from snapshots: [UsageSnapshot],
+    range: UsageTimeRange,
+    expectedActivitySourceCount: Int
+) -> UsageSnapshot {
     var scope = UsageScope()
     var recent = UsageScope()
     var trendByBucket: [Int: UsageTrendPoint] = [:]
@@ -637,33 +761,14 @@ private func aggregateSnapshot(from snapshots: [UsageSnapshot], range: UsageTime
         scope: scope,
         recent: recent,
         trendPoints: trendByBucket.values.sorted { $0.bucketStartMs < $1.bucketStartMs }.suffix(30).map { $0 },
-        activityPoints: aggregateActivityPoints(snapshots),
+        activity: UsageActivitySeries.aggregateSources(
+            snapshots.map(\.activity),
+            expectedSourceCount: expectedActivitySourceCount
+        ),
         topModels: Array(modelRows.values).sortedForRanking().prefix(3).map { $0 },
         topApiKeys: Array(apiKeyRows.values).sortedForRanking().prefix(3).map { $0 },
         refreshedAt: refreshedAt
     )
-}
-
-private func aggregateActivityPoints(_ snapshots: [UsageSnapshot]) -> [UsageTrendPoint] {
-    var pointsByDay: [Int: UsageTrendPoint] = [:]
-    for point in snapshots.flatMap(\.activityPoints) {
-        let day = milliseconds(Calendar.current.startOfDay(for: Date(timeIntervalSince1970: TimeInterval(point.bucketStartMs) / 1_000)))
-        let previous = pointsByDay[day] ?? UsageTrendPoint(
-            bucketStartMs: day,
-            label: activityLabel(day),
-            requests: 0,
-            failures: 0,
-            tokens: 0
-        )
-        pointsByDay[day] = UsageTrendPoint(
-            bucketStartMs: day,
-            label: previous.label,
-            requests: previous.requests + point.requests,
-            failures: previous.failures + point.failures,
-            tokens: previous.tokens + point.tokens
-        )
-    }
-    return pointsByDay.values.sorted { $0.bucketStartMs < $1.bucketStartMs }
 }
 
 private func mergeRankingRows(_ rows: [UsageRankingRow], prefix: String, into target: inout [String: UsageRankingRow]) {
@@ -789,10 +894,56 @@ private struct NewAPIEnvelope<T: Decodable>: Decodable {
     var data: T
 }
 
+private struct NewAPIStatusData: Decodable {
+    var enableDataExport: Bool?
+}
+
 private struct NewAPIStat: Decodable {
     var quota: Double?
     var rpm: Int
     var tpm: Int
+}
+
+private func monthlyActivityBounds(_ bounds: UsageDateBounds, calendar: Calendar = .current) -> [UsageDateBounds] {
+    var result: [UsageDateBounds] = []
+    var cursor = bounds.start
+    while cursor <= bounds.end, result.count < 13 {
+        let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: cursor)) ?? cursor
+        let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart) ?? bounds.end
+        let chunkEnd = min(bounds.end, calendar.date(byAdding: .second, value: -1, to: nextMonth) ?? bounds.end)
+        result.append(UsageDateBounds(start: cursor, end: chunkEnd))
+        guard let next = calendar.date(byAdding: .second, value: 1, to: chunkEnd), next > cursor else { break }
+        cursor = next
+    }
+    return result
+}
+
+private func activityCacheKey(config: AppConfig, bounds: UsageDateBounds) -> String {
+    let calendar = Calendar.current
+    let start = calendar.startOfDay(for: bounds.start)
+    let end = calendar.startOfDay(for: bounds.end)
+    return "\(config.primaryAdapter.resolvedID)|\(config.resolvedPlatform.rawValue)|\(config.baseURL)|\(seconds(start))|\(seconds(end))"
+}
+
+private actor UsageActivityCache {
+    static let shared = UsageActivityCache()
+    private struct Entry {
+        let dataset: UsageActivityDataset
+        let storedAt: Date
+    }
+    private var entries: [String: Entry] = [:]
+
+    func value(for key: String, now: Date = Date()) -> UsageActivityDataset? {
+        guard let entry = entries[key], now.timeIntervalSince(entry.storedAt) < 300 else {
+            entries.removeValue(forKey: key)
+            return nil
+        }
+        return entry.dataset
+    }
+
+    func store(_ dataset: UsageActivityDataset, for key: String, now: Date = Date()) {
+        entries[key] = Entry(dataset: dataset, storedAt: now)
+    }
 }
 
 private struct NewAPILogPage: Decodable {

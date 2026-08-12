@@ -28,6 +28,13 @@ struct TextBundle {
     let activityMore: String
     let activityRangeInvalid: String
     let activityRangeTooLong: String
+    let activityViewDetails: String
+    let activityRequests: String
+    let activityTokens: String
+    let activityUnknown: String
+    let activityPartial: String
+    let activityUnavailable: String
+    let activityDataExportDisabled: String
     let apply: String
     let cancel: String
     let range: String
@@ -76,10 +83,13 @@ struct TextBundle {
         successRate: "成功率", tokens: "Token", cache: "缓存", latency: "延迟",
         recent: "最近 15 分钟", trend: "趋势", activity: "用量活动",
         activityDaily: "每日", activityWeekly: "每周", activityMonthly: "每月", activityCumulative: "累计",
-        activityThisWeek: "本周", activityThisMonth: "本月", activityThisYear: "本年",
-        activityLast7Days: "过去 7 天", activityLast30Days: "过去 30 天", activityLastYear: "过去 1 年",
+        activityThisWeek: "本周", activityThisMonth: "本月", activityThisYear: "日历年",
+        activityLast7Days: "过去 7 天", activityLast30Days: "过去 30 天", activityLastYear: "滚动一年",
         activityCustom: "自定义...", activityFrom: "开始", activityTo: "结束", activityLess: "少", activityMore: "多",
         activityRangeInvalid: "开始日期不能晚于结束日期。", activityRangeTooLong: "自定义范围最多为 366 天。",
+        activityViewDetails: "查看全年", activityRequests: "请求", activityTokens: "Token",
+        activityUnknown: "未知", activityPartial: "部分数据", activityUnavailable: "活动数据不可用",
+        activityDataExportDisabled: "new-api 未启用数据统计",
         apply: "应用", cancel: "取消", range: "时间范围", rangeToday: "今天",
         range7d: "7 天", range30d: "30 天", rangeAll: "全部",
         topModel: "Top 模型", topApiKey: "Top API Key",
@@ -103,10 +113,13 @@ struct TextBundle {
         failures: "failures", successRate: "Success Rate", tokens: "Tokens",
         cache: "Cache", latency: "Latency", recent: "Last 15m", trend: "Trend", activity: "Usage Activity",
         activityDaily: "Daily", activityWeekly: "Weekly", activityMonthly: "Monthly", activityCumulative: "Cumulative",
-        activityThisWeek: "This Week", activityThisMonth: "This Month", activityThisYear: "This Year",
-        activityLast7Days: "Last 7 Days", activityLast30Days: "Last 30 Days", activityLastYear: "Last Year",
+        activityThisWeek: "This Week", activityThisMonth: "This Month", activityThisYear: "Calendar Year",
+        activityLast7Days: "Last 7 Days", activityLast30Days: "Last 30 Days", activityLastYear: "Rolling Year",
         activityCustom: "Custom...", activityFrom: "From", activityTo: "To", activityLess: "Less", activityMore: "More",
         activityRangeInvalid: "The start date must not be later than the end date.", activityRangeTooLong: "Custom ranges are limited to 366 days.",
+        activityViewDetails: "View Year", activityRequests: "Requests", activityTokens: "Tokens",
+        activityUnknown: "Unknown", activityPartial: "Partial data", activityUnavailable: "Activity data unavailable",
+        activityDataExportDisabled: "new-api data export is disabled",
         apply: "Apply", cancel: "Cancel", range: "Range",
         rangeToday: "Today", range7d: "7d", range30d: "30d", rangeAll: "All",
         topModel: "Top Model",
