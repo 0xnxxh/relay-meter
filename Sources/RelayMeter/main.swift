@@ -252,11 +252,11 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         let texts = TextBundle.forLanguage(config?.resolvedLanguage ?? .english)
         let aggregate = snapshot.aggregate
         switch config?.resolvedTitleMetric ?? .requests {
-        case .tokens: return title(snapshot, MenuValueFormatter.compact(aggregate.scope.totalTokens))
+        case .tokens: return title(snapshot, MenuValueFormatter.tokenCount(aggregate.scope.totalTokens))
         case .failures: return title(snapshot, "\(MenuValueFormatter.compact(aggregate.scope.failureCount)) \(texts.failures)")
         case .successRate: return title(snapshot, MenuValueFormatter.percent(aggregate.scope.successRate))
         case .latency: return title(snapshot, aggregate.scope.avgLatencyMs.map(MenuValueFormatter.duration) ?? "--")
-        case .cache: return title(snapshot, "\(MenuValueFormatter.compact(aggregate.scope.cacheTokens)) \(texts.cacheUnit)")
+        case .cache: return title(snapshot, "\(MenuValueFormatter.tokenCount(aggregate.scope.cacheTokens)) \(texts.cacheUnit)")
         case .recent: return title(snapshot, "\(MenuValueFormatter.compact(aggregate.recent.totalRequests)) / \(texts.last15m)")
         case .cost: return title(snapshot, aggregate.scope.costUSD.map(MenuValueFormatter.currencyUSD) ?? "--")
         case .requests: return title(snapshot, "\(MenuValueFormatter.compact(aggregate.scope.totalRequests)) / \(MenuValueFormatter.percent(aggregate.scope.successRate))")

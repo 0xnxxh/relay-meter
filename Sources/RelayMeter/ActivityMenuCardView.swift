@@ -109,14 +109,17 @@ final class ActivityMenuCardView: RoundedPanelView {
         guard let day else { return "--" }
         let date = DateFormatter.localizedString(from: day.start, dateStyle: .short, timeStyle: .none)
         let value = metric == .requests ? day.requests : day.tokens
+        let formattedValue = metric == .requests
+            ? MenuValueFormatter.compact(value)
+            : MenuValueFormatter.tokenCount(value)
         let unit = metric == .requests ? texts.requests : texts.activityTokens
         switch day.state {
         case .unknown:
             return "\(date)  \(texts.activityUnknown)"
         case .partial:
-            return "\(date)  \(MenuValueFormatter.compact(value)) · \(texts.activityPartial)"
+            return "\(date)  \(formattedValue) · \(texts.activityPartial)"
         case .observed, .knownZero:
-            return "\(date)  \(MenuValueFormatter.compact(value)) \(unit.uppercased())"
+            return "\(date)  \(formattedValue) \(unit.uppercased())"
         }
     }
 

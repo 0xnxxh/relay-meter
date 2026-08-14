@@ -66,7 +66,7 @@ final class TrendMenuCardView: RoundedPanelView {
 
     private func valueText(_ point: UsageTrendPoint?) -> String {
         guard let point else { return "--" }
-        return "\(point.label)  \(MenuValueFormatter.number(point.requests)) REQ  \(MenuValueFormatter.compact(point.tokens)) TOKEN  \(MenuValueFormatter.number(point.failures)) ERR"
+        return "\(point.label)  \(MenuValueFormatter.number(point.requests)) REQ  \(MenuValueFormatter.tokenCount(point.tokens)) TOKEN  \(MenuValueFormatter.number(point.failures)) ERR"
     }
 
     private func legendItem(_ title: String, color: NSColor) -> NSView {

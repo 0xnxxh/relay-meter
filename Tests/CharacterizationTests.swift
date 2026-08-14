@@ -6,6 +6,7 @@ struct CharacterizationTests {
     @MainActor
     static func main() async {
         testMenuValueFormatter()
+        testTokenCountFormatter()
         testUsageCostAggregation()
         testHealthColors()
         testUsageActivityDateBounds()
@@ -18,8 +19,10 @@ struct CharacterizationTests {
         await testCLIProxyCost()
         await testSub2APICost()
         await testNewAPIActivityUsesAggregateEndpoint()
+        await testSingleAdapterDashboardRankingLabels()
         testActivityMenuLayout()
         testCostMenuLayout()
+        testTopModelRankingCardLayout()
         testActivityWindowLayout()
         testEnglishSettingsCopy()
         testChineseSettingsCopy()
@@ -38,6 +41,17 @@ struct CharacterizationTests {
         expect(MenuValueFormatter.duration(ms: 5_400_000) == "1.5 h", "hour formatting changed")
         expect(MenuValueFormatter.currencyUSD(12.345) == "$12.35", "USD cost formatting changed")
         expect(MenuValueFormatter.currencyUSD(0.0004) == "$0.0004", "small USD costs must remain visible")
+    }
+
+    private static func testTokenCountFormatter() {
+        expect(MenuValueFormatter.tokenCount(0) == "0K", "zero tokens must use K")
+        expect(MenuValueFormatter.tokenCount(600) == "0.6K", "sub-million tokens must use K")
+        expect(MenuValueFormatter.tokenCount(999_999) == "999.999K", "K values must truncate to three decimals")
+        expect(MenuValueFormatter.tokenCount(1_000_000) == "1M", "one million tokens must switch to M")
+        expect(MenuValueFormatter.tokenCount(1_234_500) == "1.234M", "M values must truncate to three decimals")
+        expect(MenuValueFormatter.tokenCount(999_999_999) == "999.999M", "M values must not round into B")
+        expect(MenuValueFormatter.tokenCount(1_000_000_000) == "1B", "one billion tokens must switch to B")
+        expect(MenuValueFormatter.tokenCount(1_234_500_000) == "1.234B", "B values must truncate to three decimals")
     }
 
     private static func testUsageCostAggregation() {
@@ -291,6 +305,36 @@ struct CharacterizationTests {
         expect(snapshot.activity.days.contains { $0.state == .observed }, "new-api aggregate rows must populate the activity dataset")
     }
 
+    private static func testSingleAdapterDashboardRankingLabels() async {
+        RequestStubURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RequestStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        var config = AppConfig.defaultConfig
+        let adapter = AdapterConfig(
+            id: "new-api-test",
+            name: "CPA",
+            enabled: true,
+            platform: .newApi,
+            baseURL: "https://new-api.test",
+            managementKey: "test-token",
+            authHeaderName: "Authorization",
+            newApiUserID: 1,
+            monitoringPath: "/"
+        )
+        config.adapters = [adapter]
+        config.platform = .newApi
+        config.baseURL = adapter.baseURL
+        config.managementKey = adapter.managementKey
+        config.newApiUserID = adapter.newApiUserID
+
+        let dashboard = try! await UsageClient(config: config, session: session).fetchDashboardSnapshot()
+        expect(
+            dashboard.aggregate.topModels.map(\.label) == ["test-model"],
+            "a single enabled adapter must not prefix top-model labels with its name"
+        )
+    }
+
     @MainActor
     private static func testActivityMenuLayout() {
         let dataset = previewActivityDataset()
@@ -326,6 +370,10 @@ struct CharacterizationTests {
     @MainActor
     private static func testCostMenuLayout() {
         var scope = UsageScope()
+        scope.totalTokens = 1_234_500_000
+        scope.inputTokens = 1_000_000_000
+        scope.outputTokens = 234_500_000
+        scope.cacheTokens = 12_345_000
         scope.costUSD = 12.345
         let snapshot = UsageSnapshot(
             sourceID: "preview",
@@ -346,10 +394,110 @@ struct CharacterizationTests {
         var copy = Set<String>()
         collectCopy(from: view, into: &copy)
         expect(copy.contains("TOKENS"), "tokens card title missing")
+        expect(copy.contains("1.234B"), "tokens card total must use B with truncated precision")
+        expect(copy.contains("1B / 234.5M"), "input and output tokens must use the shared token formatter")
+        expect(copy.contains("12.345M / 1%"), "cache tokens must use the shared token formatter")
         expect(copy.contains("$12.35"), "tokens card spend value missing")
         expect(copy.contains("ACTUAL SPEND"), "tokens card spend type missing")
         expect(!copy.contains("CURRENCY"), "tokens card must not show a currency row")
         expect(!copy.contains("RANGE"), "tokens card must not show a range row")
+    }
+
+    @MainActor
+    private static func testTopModelRankingCardLayout() {
+        let snapshot = UsageSnapshot(
+            sourceID: "preview",
+            sourceName: "Preview",
+            platform: .cliproxyapiPro,
+            selectedRange: .sevenDays,
+            scope: UsageScope(),
+            recent: UsageScope(),
+            trendPoints: [],
+            activity: previewActivityDataset(),
+            topModels: [
+                UsageRankingRow(label: "gpt-5.6-sol", requests: 3_373, failures: 0, tokens: 600_000_000),
+                UsageRankingRow(label: "claude-opus-5", requests: 133, failures: 2, tokens: 300_000_000),
+                UsageRankingRow(label: "claude-sonnet-5", requests: 33, failures: 2, tokens: 100_000_000)
+            ],
+            topApiKeys: [
+                UsageRankingRow(label: "sk-must-not-render", requests: 999, failures: 0, tokens: 999)
+            ],
+            refreshedAt: Date()
+        )
+        var config = AppConfig.defaultConfig
+        config.listItems = [.topModel, .topApiKey]
+        expect(config.resolvedListItems == [.topModel], "legacy Top API key settings must be ignored")
+        expect(!DisplayItem.defaultItems.contains(.topApiKey), "Top API key must not be enabled by default")
+
+        let view = SnapshotMenuView(snapshot: snapshot, config: config, texts: TextBundle.forLanguage(.english))
+        view.layoutSubtreeIfNeeded()
+        var copy = Set<String>()
+        collectCopy(from: view, into: &copy)
+        expect(copy.contains("TOP MODEL"), "Top model card title missing")
+        expect(copy.contains("3,373 REQ / 600M TOKEN"), "model ranking must show request and compact token counts")
+        expect(!copy.contains("3,373 REQ / 100%"), "model ranking must not show success rate")
+        expect(!copy.contains("TOP API KEY"), "Top API key card must be removed")
+        expect(!copy.contains("sk-must-not-render"), "Top API key data must not render")
+
+        guard let chart = findView(in: view, matching: {
+            $0.identifier?.rawValue == "top-model-token-share-chart"
+        }), let detail = findView(in: view, matching: {
+            $0.identifier?.rawValue == "top-model-token-share-detail"
+        }) as? NSTextField else {
+            fatalError("Top model token-share hover UI missing")
+        }
+        if let previewPath = ProcessInfo.processInfo.environment["RELAY_METER_RANKING_CARD_PREVIEW_PATH"] {
+            render(view, to: previewPath)
+        }
+        let hoverPoint = chart.convert(
+            NSPoint(x: chart.bounds.midX, y: chart.bounds.maxY - 4),
+            to: nil
+        )
+        guard let hoverEvent = NSEvent.mouseEvent(
+            with: .mouseMoved,
+            location: hoverPoint,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 0,
+            pressure: 0
+        ) else {
+            fatalError("Top model token-share hover event unavailable")
+        }
+        chart.mouseMoved(with: hoverEvent)
+        expect(detail.stringValue == "gpt-5.6-sol · 60%", "hovering a pie slice must show its model and share")
+        expect(
+            chart.accessibilityValue() as? String == "gpt-5.6-sol 60%",
+            "hovered pie slice must update its accessibility value"
+        )
+        if let previewPath = ProcessInfo.processInfo.environment["RELAY_METER_RANKING_CARD_HOVER_PREVIEW_PATH"] {
+            render(view, to: previewPath)
+        }
+        chart.mouseExited(with: hoverEvent)
+        expect(detail.stringValue == "TOKENS %", "leaving the pie chart must restore its summary label")
+        expect(
+            chart.accessibilityValue() as? String == "gpt-5.6-sol 60% / claude-opus-5 30% / claude-sonnet-5 10%",
+            "pie chart must restore its complete accessibility summary"
+        )
+        expect(chart.acceptsFirstResponder, "pie chart must expose a keyboard focus path")
+        guard let rightArrow = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: 124
+        ) else {
+            fatalError("Top model token-share keyboard event unavailable")
+        }
+        chart.keyDown(with: rightArrow)
+        expect(detail.stringValue == "gpt-5.6-sol · 60%", "keyboard navigation must expose the same pie-slice detail")
     }
 
     @MainActor
@@ -433,11 +581,12 @@ struct CharacterizationTests {
             "Launch at Login", "Spend",
             "English", "Requests + success rate", "Total tokens", "Failures", "Success rate",
             "Average latency", "Cache tokens", "Last 15m activity", "Today", "7d", "30d", "All",
-            "Traffic", "Tokens", "Cache", "Latency", "Last 15m", "Trend chart", "Top model", "Top API key", "Last updated",
+            "Traffic", "Tokens", "Cache", "Latency", "Last 15m", "Trend chart", "Top model", "Last updated",
             "Enabled", "SHOW", "HIDE", "DELETE", "ADD ADAPTER",
             "Enabled adapters refresh in parallel; one failed adapter does not block the others.",
             "CHECK FOR UPDATES...", "CANCEL", "SAVE"
         ], in: copy, language: "English")
+        expect(!copy.contains("Top API key"), "English settings must not offer the removed Top API key card")
     }
 
     @MainActor
@@ -450,11 +599,12 @@ struct CharacterizationTests {
             "登录时启动", "花费",
             "简体中文", "请求数 + 成功率", "总 Token", "失败数", "成功率",
             "平均延迟", "缓存 Token", "最近 15 分钟活跃", "今天", "7 天", "30 天", "全部",
-            "流量", "Token", "缓存", "延迟", "最近 15 分钟", "趋势曲线图", "Top 模型", "Top API Key", "最后更新时间",
+            "流量", "Token", "缓存", "延迟", "最近 15 分钟", "趋势曲线图", "Top 模型", "最后更新时间",
             "启用", "显示", "隐藏", "删除", "添加 ADAPTER",
             "启用的 adapter 会并发刷新；单个 adapter 失败不会阻止其他 adapter 展示。",
             "检查更新...", "取消", "保存"
         ], in: copy, language: "Chinese")
+        expect(!copy.contains("Top API Key"), "Chinese settings must not offer the removed Top API key card")
     }
 
     @MainActor

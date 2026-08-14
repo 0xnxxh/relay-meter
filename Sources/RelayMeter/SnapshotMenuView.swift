@@ -123,8 +123,8 @@ final class SnapshotMenuView: NSView {
             root.addArrangedSubview(adapterErrorsCard(dashboard: dashboard, texts: texts))
         }
 
-        if enabled.contains(.topModel) || enabled.contains(.topApiKey) {
-            root.addArrangedSubview(rankingCard(snapshot: selectedSnapshot, enabled: enabled, texts: texts))
+        if enabled.contains(.topModel) {
+            root.addArrangedSubview(rankingCard(snapshot: selectedSnapshot, texts: texts))
         }
 
         if enabled.contains(.trend) {
@@ -148,8 +148,8 @@ final class SnapshotMenuView: NSView {
             root.addArrangedSubview(card)
         }
 
-        if enabled.contains(.topModel) || enabled.contains(.topApiKey) {
-            root.addArrangedSubview(rankingCard(snapshot: snapshot, enabled: enabled, texts: texts))
+        if enabled.contains(.topModel) {
+            root.addArrangedSubview(rankingCard(snapshot: snapshot, texts: texts))
         }
 
         if enabled.contains(.trend) {
@@ -411,13 +411,13 @@ final class SnapshotMenuView: NSView {
             let costValue = snapshot.scope.costUSD.map(MenuValueFormatter.currencyUSD) ?? "--"
             cards.append(metricCard(
                 title: texts.tokens,
-                value: MenuValueFormatter.compact(snapshot.scope.totalTokens),
+                value: MenuValueFormatter.tokenCount(snapshot.scope.totalTokens),
                 caption: texts.total,
                 accent: RelayTheme.accent,
                 icon: .tokens,
                 footers: [
-                    ("\(texts.input)/\(texts.output)", "\(MenuValueFormatter.compact(snapshot.scope.inputTokens)) / \(MenuValueFormatter.compact(snapshot.scope.outputTokens))"),
-                    (texts.cache, "\(MenuValueFormatter.compact(snapshot.scope.cacheTokens)) / \(MenuValueFormatter.percent(snapshot.scope.cacheRate))"),
+                    ("\(texts.input)/\(texts.output)", "\(MenuValueFormatter.tokenCount(snapshot.scope.inputTokens)) / \(MenuValueFormatter.tokenCount(snapshot.scope.outputTokens))"),
+                    (texts.cache, "\(MenuValueFormatter.tokenCount(snapshot.scope.cacheTokens)) / \(MenuValueFormatter.percent(snapshot.scope.cacheRate))"),
                     (costLabel, costValue)
                 ]
             ))
@@ -431,7 +431,7 @@ final class SnapshotMenuView: NSView {
                 accent: RelayTheme.up,
                 icon: .recent,
                 footers: [
-                    (texts.tokens, MenuValueFormatter.compact(snapshot.recent.totalTokens)),
+                    (texts.tokens, MenuValueFormatter.tokenCount(snapshot.recent.totalTokens)),
                     (texts.failures, MenuValueFormatter.number(snapshot.recent.failureCount))
                 ]
             ))
@@ -507,8 +507,8 @@ final class SnapshotMenuView: NSView {
         return card
     }
 
-    private func rankingCard(snapshot: UsageSnapshot, enabled: Set<DisplayItem>, texts: TextBundle) -> NSView {
-        let card = RankingMenuCardView(snapshot: snapshot, enabled: enabled, texts: texts)
+    private func rankingCard(snapshot: UsageSnapshot, texts: TextBundle) -> NSView {
+        let card = RankingMenuCardView(snapshot: snapshot, texts: texts)
         card.translatesAutoresizingMaskIntoConstraints = false
         card.widthAnchor.constraint(equalToConstant: contentWidth - 24).isActive = true
         return card

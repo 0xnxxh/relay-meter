@@ -408,7 +408,7 @@ final class SettingsWindowController: NSWindowController {
         grid.rowSpacing = 8
         grid.columnSpacing = 12
         let enabledItems = Set(config.resolvedListItems)
-        let items = DisplayItem.allCases
+        let items = DisplayItem.configurableItems
 
         for pair in stride(from: 0, to: items.count, by: 2) {
             let left = checkbox(for: items[pair], enabledItems: enabledItems)
@@ -639,7 +639,7 @@ final class SettingsWindowController: NSWindowController {
         config.timeRange = UsageTimeRange(rawValue: selectedValue(rangePopup))
         config.activityPeriod = config.resolvedActivityPeriod
         config.display = config.titleMetric?.rawValue
-        config.listItems = DisplayItem.allCases.filter { itemButtons[$0]?.state == .on }
+        config.listItems = DisplayItem.configurableItems.filter { itemButtons[$0]?.state == .on }
         onSave(config, launchAtLoginButton.state == .on)
         close()
     }

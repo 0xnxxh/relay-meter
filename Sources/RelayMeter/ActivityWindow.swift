@@ -192,6 +192,9 @@ final class ActivityWindowController: NSWindowController {
             total + (selectedMetric == .requests ? day.requests : day.tokens)
         }
         let unit = selectedMetric == .requests ? texts.requests : texts.activityTokens
+        let formattedTotal = selectedMetric == .requests
+            ? MenuValueFormatter.number(total)
+            : MenuValueFormatter.tokenCount(total)
         let prefix: String
         switch dataset.availability {
         case .complete: prefix = ""
@@ -201,7 +204,7 @@ final class ActivityWindowController: NSWindowController {
                 ? "\(texts.activityDataExportDisabled) · "
                 : "\(texts.activityUnavailable) · "
         }
-        return menuLabel("\(prefix)\(MenuValueFormatter.number(total)) \(unit)", size: 11, weight: .bold, color: dataset.availability == .complete ? RelayTheme.muted : RelayTheme.warn)
+        return menuLabel("\(prefix)\(formattedTotal) \(unit)", size: 11, weight: .bold, color: dataset.availability == .complete ? RelayTheme.muted : RelayTheme.warn)
     }
 
     private func detail(_ day: UsageActivityDay?) -> String {
@@ -209,7 +212,7 @@ final class ActivityWindowController: NSWindowController {
         let date = DateFormatter.localizedString(from: day.start, dateStyle: .medium, timeStyle: .none)
         if day.state == .unknown { return "\(date) · \(texts.activityUnknown)" }
         let suffix = day.state == .partial ? " · \(texts.activityPartial)" : ""
-        return "\(date) · \(MenuValueFormatter.number(day.requests)) \(texts.requests) · \(MenuValueFormatter.compact(day.tokens)) \(texts.activityTokens)\(suffix)"
+        return "\(date) · \(MenuValueFormatter.number(day.requests)) \(texts.requests) · \(MenuValueFormatter.tokenCount(day.tokens)) \(texts.activityTokens)\(suffix)"
     }
 
     @objc private func sourceChanged(_ sender: PixelPopupButton) {

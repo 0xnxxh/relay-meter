@@ -197,6 +197,28 @@ enum MenuValueFormatter {
         return String(value)
     }
 
+    static func tokenCount(_ value: Int) -> String {
+        let tokens = max(value, 0)
+        let unit: (divisor: Int, suffix: String)
+        if tokens >= 1_000_000_000 {
+            unit = (1_000_000_000, "B")
+        } else if tokens >= 1_000_000 {
+            unit = (1_000_000, "M")
+        } else {
+            unit = (1_000, "K")
+        }
+
+        let whole = tokens / unit.divisor
+        let fraction = (tokens % unit.divisor) * 1_000 / unit.divisor
+        guard fraction > 0 else { return "\(whole)\(unit.suffix)" }
+        let digits = String(format: "%03d", fraction).replacingOccurrences(
+            of: "0+$",
+            with: "",
+            options: .regularExpression
+        )
+        return "\(whole).\(digits)\(unit.suffix)"
+    }
+
     static func duration(ms value: Int) -> String {
         if value < 1_000 {
             return "\(value) ms"

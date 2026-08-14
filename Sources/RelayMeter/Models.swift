@@ -63,7 +63,8 @@ struct AppConfig: Codable {
 
     var resolvedListItems: [DisplayItem] {
         let values = listItems ?? DisplayItem.defaultItems
-        let resolved = values.isEmpty ? DisplayItem.defaultItems : values
+        let supported = values.filter { $0 != .topApiKey }
+        let resolved = supported.isEmpty ? DisplayItem.defaultItems : supported
         if activityPeriod == nil, !resolved.contains(.activity) {
             return resolved + [.activity]
         }
@@ -240,6 +241,8 @@ enum DisplayItem: String, Codable, CaseIterable {
     case topApiKey
     case refreshedAt
 
+    static let configurableItems = allCases.filter { $0 != .topApiKey }
+
     static let defaultItems: [DisplayItem] = [
         .traffic,
         .successRate,
@@ -249,7 +252,6 @@ enum DisplayItem: String, Codable, CaseIterable {
         .trend,
         .activity,
         .topModel,
-        .topApiKey,
         .refreshedAt
     ]
 }

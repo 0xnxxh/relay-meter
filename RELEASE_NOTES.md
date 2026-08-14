@@ -1,16 +1,13 @@
-# Relay Meter v1.0.9
+# Relay Meter v1.0.10
 
 ## Highlights
 
-- Adds a Launch at Login setting backed by macOS Login Items, with an explicit approval state when System Settings action is required.
-- Shows actual or estimated spend inside the Token card without separate currency or range rows.
-- Adds Spend as an optional menu bar title metric.
+- Replaces the Top API Key ranking with an interactive Top Model token-share pie chart.
+- Shows the model name and token share when hovering a pie slice or navigating it with the keyboard.
+- Uses consistent K, M, and B units for token counts throughout the app.
 
 ## Fixes
 
-- Reads CLIProxyAPI-Pro estimated cost, sub2api actual cost, and new-api quota conversion without presenting partial aggregate spend as a total.
-- Declares and pins Sparkle 2.9.3 for SwiftPM so a plain `swift build` succeeds.
-
-## Internal
-
-- Keeps SwiftPM in Swift 5 language mode, matching the existing release build path while using Swift 6 package tools.
+- Shows token counts instead of success rate in Top Model rows.
+- Hides the adapter name from ranking labels when only one adapter is enabled, while preserving source labels for multi-adapter views.
+- Removes the Top API Key option from defaults, settings, and example configuration.

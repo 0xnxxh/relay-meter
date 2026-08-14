@@ -750,6 +750,7 @@ private func aggregateSnapshot(
     var modelRows: [String: UsageRankingRow] = [:]
     var apiKeyRows: [String: UsageRankingRow] = [:]
     var refreshedAt = Date()
+    let showsAdapterName = expectedActivitySourceCount > 1
 
     for snapshot in snapshots {
         scope.add(snapshot.scope)
@@ -763,8 +764,9 @@ private func aggregateSnapshot(
             ].add(requests: point.requests, failures: point.failures, tokens: point.tokens)
         }
 
-        mergeRankingRows(snapshot.topModels, prefix: snapshot.sourceName, into: &modelRows)
-        mergeRankingRows(snapshot.topApiKeys, prefix: snapshot.sourceName, into: &apiKeyRows)
+        let adapterName = showsAdapterName ? snapshot.sourceName : nil
+        mergeRankingRows(snapshot.topModels, adapterName: adapterName, into: &modelRows)
+        mergeRankingRows(snapshot.topApiKeys, adapterName: adapterName, into: &apiKeyRows)
     }
     if let cost = UsageCost.totalIfComplete(snapshots.map(\.scope), expectedCount: expectedActivitySourceCount) {
         scope.costUSD = cost.value
@@ -793,9 +795,9 @@ private func aggregateSnapshot(
     )
 }
 
-private func mergeRankingRows(_ rows: [UsageRankingRow], prefix: String, into target: inout [String: UsageRankingRow]) {
+private func mergeRankingRows(_ rows: [UsageRankingRow], adapterName: String?, into target: inout [String: UsageRankingRow]) {
     for row in rows {
-        let label = "\(prefix) · \(row.label)"
+        let label = adapterName.map { "\($0) · \(row.label)" } ?? row.label
         target[label, default: UsageRankingRow(label: label, requests: 0, failures: 0, tokens: 0)].add(
             requests: row.requests,
             failures: row.failures,
