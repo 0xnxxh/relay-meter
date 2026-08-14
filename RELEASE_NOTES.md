@@ -1,11 +1,11 @@
-# Relay Meter v1.0.11
+# Relay Meter v1.0.12
 
 ## Highlights
 
-- Enlarges the Top Model token-share pie chart while preserving the ranking card's compact height and even row spacing.
-- Formats token counts with up to four significant digits within K, M, and B units.
+- Restores the last successful dashboard immediately at launch while refreshing current data in the background.
+- Keeps the cached dashboard scoped to matching adapters, credentials, and time range without storing management keys.
 
-## Fixes
+## Performance
 
-- Prevents the pie chart from adding excess whitespace below the model list.
-- Truncates token values consistently, such as `123.4M`, `12.34M`, and `1.234M`, without rounding into the next unit.
+- Coalesces overlapping refreshes and cancels obsolete requests after configuration or time-range changes.
+- Removes unused API-key ranking requests from all supported adapters, reducing startup network work.

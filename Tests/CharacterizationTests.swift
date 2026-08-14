@@ -8,6 +8,8 @@ struct CharacterizationTests {
         testMenuValueFormatter()
         testTokenCountFormatter()
         testUsageCostAggregation()
+        testRefreshGateCoalescesOverlappingRequests()
+        testDashboardSnapshotStoreMatchesConfigurationWithoutSecrets()
         testHealthColors()
         testUsageActivityDateBounds()
         testActivityDisplayModes()
@@ -65,6 +67,47 @@ struct CharacterizationTests {
         var pricedScope = UsageScope()
         pricedScope.costUSD = 1
         expect(UsageCost.totalIfComplete([pricedScope], expectedCount: 2) == nil, "a failed adapter must suppress the aggregate cost")
+    }
+
+    private static func testRefreshGateCoalescesOverlappingRequests() {
+        var gate = RefreshGate()
+        expect(gate.begin(), "the first refresh must acquire the refresh gate")
+        expect(!gate.begin(), "an overlapping refresh must be coalesced")
+        gate.finish()
+        expect(gate.begin(), "a completed refresh must release the refresh gate")
+        gate.reset()
+        expect(gate.begin(), "configuration changes must reset the refresh gate")
+    }
+
+    private static func testDashboardSnapshotStoreMatchesConfigurationWithoutSecrets() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("relay-meter-snapshot-test-\(UUID().uuidString)")
+        let store = DashboardSnapshotStore(
+            url: directory.appendingPathComponent("dashboard.json")
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var config = AppConfig.defaultConfig
+        config.managementKey = "do-not-cache-this-secret"
+        config.adapters[0].managementKey = config.managementKey
+        let snapshot = previewDashboardSnapshot()
+
+        try! store.save(snapshot, for: config)
+        let restored = store.load(for: config)
+        let storedData = try! Data(contentsOf: store.url)
+        let storedText = String(decoding: storedData, as: UTF8.self)
+        let permissions = (try! FileManager.default.attributesOfItem(atPath: store.url.path)[.posixPermissions] as! NSNumber).intValue
+
+        expect(restored?.aggregate.scope.totalRequests == snapshot.aggregate.scope.totalRequests, "matching configuration must restore the last successful dashboard")
+        expect(!storedText.contains(config.managementKey), "dashboard cache must never persist management keys")
+        expect(permissions == 0o600, "dashboard cache must be readable only by the current user")
+
+        config.managementKey = "different-management-key"
+        config.adapters[0].managementKey = config.managementKey
+        expect(store.load(for: config) == nil, "a cached dashboard must not cross credential boundaries")
+        config.managementKey = "do-not-cache-this-secret"
+        config.adapters[0].managementKey = config.managementKey
+        config.timeRange = .sevenDays
+        expect(store.load(for: config) == nil, "a cached dashboard must not cross time-range boundaries")
     }
 
     private static func testHealthColors() {
@@ -246,7 +289,16 @@ struct CharacterizationTests {
         config.adapters[0].baseURL = config.baseURL
 
         let snapshot = try! await UsageClient(config: config, session: session).fetchSnapshot()
+        let requests = RequestStubURLProtocol.recordedRequests()
         expect(snapshot.scope.costUSD == 1.25, "CLIProxy estimated cost must be exposed in USD")
+        expect(
+            requests.allSatisfy { request in
+                URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+                    .queryItems?
+                    .contains { $0.name == "group_by" && $0.value == "api_key_hash" } != true
+            },
+            "CLIProxy refresh must not fetch an API-key ranking that has no visible consumer"
+        )
     }
 
     private static func testSub2APICost() async {
@@ -272,7 +324,12 @@ struct CharacterizationTests {
         config.managementKey = adapter.managementKey
 
         let snapshot = try! await UsageClient(config: config, session: session).fetchSnapshot()
+        let requests = RequestStubURLProtocol.recordedRequests()
         expect(snapshot.scope.costUSD == 2, "sub2api actual cost must follow the selected trend range")
+        expect(
+            requests.allSatisfy { $0.url?.path != "/api/v1/admin/dashboard/api-keys-trend" },
+            "sub2api refresh must not fetch an API-key ranking that has no visible consumer"
+        )
     }
 
     private static func testNewAPIActivityUsesAggregateEndpoint() async {
@@ -584,6 +641,33 @@ struct CharacterizationTests {
             ],
             bounds: bounds,
             knownBounds: [bounds]
+        )
+    }
+
+    private static func previewDashboardSnapshot() -> UsageDashboardSnapshot {
+        var scope = UsageScope()
+        scope.totalRequests = 42
+        scope.successCount = 41
+        scope.failureCount = 1
+        let snapshot = UsageSnapshot(
+            sourceID: "primary",
+            sourceName: "Preview",
+            platform: .cliproxyapiPro,
+            selectedRange: .today,
+            scope: scope,
+            recent: UsageScope(),
+            trendPoints: [],
+            activity: previewActivityDataset(),
+            topModels: [],
+            topApiKeys: [],
+            refreshedAt: date("2026-08-14T12:00:00Z")
+        )
+        return UsageDashboardSnapshot(
+            selectedRange: .today,
+            aggregate: snapshot,
+            adapters: [snapshot],
+            errors: [],
+            refreshedAt: snapshot.refreshedAt
         )
     }
 

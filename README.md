@@ -40,6 +40,8 @@ Open `Settings` from the menu bar and set:
 
 Saving in `Settings` applies the new config immediately. Keep `~/.config/relay-meter/config.json` private because it contains an access key.
 
+Relay Meter restores the last successful dashboard immediately on launch, then refreshes it in the background. The snapshot is stored at `~/.config/relay-meter/dashboard.json` with user-only permissions, contains no management keys, and is used only when the adapter identities, credentials, and selected range still match.
+
 `Launch at Login` in Settings registers the main app with macOS Login Items. If macOS requires approval, Relay Meter opens the Login Items pane and reports that approval is still required.
 
 When multiple adapters are enabled, the menu bar title shows the aggregate total. The menu body has source tabs: `All` first, then one tab per adapter. Switching tabs changes the cards, rankings, and trend chart between the aggregate view and a single adapter. If one adapter fails, the others still render and the failed adapter appears as an error on the aggregate tab.
@@ -53,7 +55,7 @@ Relay Meter has dedicated adapters for these projects:
 | Platform | Project | Auth | Data path |
 | --- | --- | --- | --- |
 | `cliproxyapiPro` | [ssfun/CLIProxyAPI-Pro](https://github.com/ssfun/CLIProxyAPI-Pro) | `Authorization: Bearer <managementKey>` | `GET /v0/management/usage/aggregates`, including daily heatmap buckets |
-| `sub2api` | [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) | `x-api-key: <managementKey>` by default, or admin JWT with `Authorization: Bearer ...` if overridden | `GET /api/v1/admin/dashboard/stats`, `trend`, `models`, and `api-keys-trend`; the heatmap uses daily `trend` data |
+| `sub2api` | [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) | `x-api-key: <managementKey>` by default, or admin JWT with `Authorization: Bearer ...` if overridden | `GET /api/v1/admin/dashboard/stats`, `trend`, and `models`; the heatmap uses daily `trend` data |
 | `newApi` | [QuantumNous/new-api](https://github.com/QuantumNous/new-api) | `Authorization: <access-token>` plus `New-Api-User: <newApiUserID>` | `GET /api/log/` for cards and `GET /api/data/` for the heatmap |
 
 The current app was originally built around [ssfun/CLIProxyAPI-Pro](https://github.com/ssfun/CLIProxyAPI-Pro), so that link is intentionally kept explicit. `sub2api` and `new-api` expose different routes and response schemas, so they are integrated through separate adapters rather than by changing only `baseURL`.
@@ -118,6 +120,8 @@ xattr -cr "/Applications/Relay Meter.app"
 
 在 `设置` 中保存后，新配置会立即生效。请保护好 `~/.config/relay-meter/config.json`，里面包含访问密钥。
 
+Relay Meter 启动时会立即恢复上次成功的仪表盘，再在后台刷新。快照保存在 `~/.config/relay-meter/dashboard.json`，权限仅限当前用户，不包含管理密钥；只有 adapter 身份、凭据和所选时间范围均匹配时才会使用。
+
 设置中的“登录时启动”会把主应用注册到 macOS 登录项。如果系统仍要求授权，Relay Meter 会打开登录项设置页并明确提示尚未完成授权。
 
 启用多个 adapter 时，菜单栏标题显示聚合总量；菜单展开后有来源标签：第一个是 `总览`，后面每个 adapter 一个标签。切换标签会在聚合视图和单个 adapter 之间切换卡片、排行和趋势图。单个 adapter 失败不会阻止其他 adapter 展示，失败项会显示在总览标签下。
@@ -131,7 +135,7 @@ Relay Meter 已为这些项目提供独立 adapter：
 | 平台 | 项目 | 鉴权 | 数据接口 |
 | --- | --- | --- | --- |
 | `cliproxyapiPro` | [ssfun/CLIProxyAPI-Pro](https://github.com/ssfun/CLIProxyAPI-Pro) | `Authorization: Bearer <managementKey>` | `GET /v0/management/usage/aggregates`，包括热力图日聚合 |
-| `sub2api` | [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) | 默认 `x-api-key: <managementKey>`；如覆盖为 `Authorization`，可使用管理员 JWT `Bearer ...` | `GET /api/v1/admin/dashboard/stats`、`trend`、`models`、`api-keys-trend`；热力图使用日粒度 `trend` |
+| `sub2api` | [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) | 默认 `x-api-key: <managementKey>`；如覆盖为 `Authorization`，可使用管理员 JWT `Bearer ...` | `GET /api/v1/admin/dashboard/stats`、`trend`、`models`；热力图使用日粒度 `trend` |
 | `newApi` | [QuantumNous/new-api](https://github.com/QuantumNous/new-api) | `Authorization: <access-token>` 加 `New-Api-User: <newApiUserID>` | 卡片使用 `GET /api/log/`，热力图使用 `GET /api/data/` |
 
 当前应用最初围绕 [ssfun/CLIProxyAPI-Pro](https://github.com/ssfun/CLIProxyAPI-Pro) 开发，因此 README 明确保留该项目链接。`sub2api` 和 `new-api` 的路由、鉴权和响应结构不同，所以不能只改 `baseURL`，必须走各自 adapter。

@@ -14,6 +14,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         userDriverDelegate: nil
     )
     private let configStore = ConfigStore()
+    private let snapshotStore = DashboardSnapshotStore()
     let logger = AppLogger.shared
     private var client: UsageClient?
     var config: AppConfig?
@@ -34,6 +35,8 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private var configReloadWorkItem: DispatchWorkItem?
     private var isSavingConfig = false
     private var refreshGeneration = 0
+    private var refreshGate = RefreshGate()
+    private var refreshTask: Task<Void, Never>?
     private var needsSnapshotRender = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -130,7 +133,10 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         logger.info("apply config refresh=\(refresh) \(configSummary(nextConfig))")
         config = nextConfig
         client = UsageClient(config: nextConfig, logger: logger)
+        cancelRefresh()
         refreshGeneration += 1
+        lastSnapshot = snapshotStore.load(for: nextConfig)
+        logger.info("dashboard cache \(lastSnapshot == nil ? "miss" : "restored")")
         configureMenu()
         scheduleRefresh(interval: nextConfig.refreshInterval)
         if refresh {
@@ -207,32 +213,89 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
             loadConfigAndStart()
             return
         }
+        guard refreshGate.begin() else {
+            logger.info("refresh coalesced while request is in progress")
+            return
+        }
 
         if lastSnapshot == nil {
             let texts = TextBundle.forLanguage(config?.resolvedLanguage ?? .english)
             statusItem.button?.title = "RM \(texts.loading)"
             renderSnapshotMenuView()
+        } else {
+            renderRefreshingTooltip()
         }
         refreshGeneration += 1
         let generation = refreshGeneration
-        Task { @MainActor in
+        refreshTask = Task { @MainActor in
+            defer {
+                if generation == self.refreshGeneration {
+                    self.refreshGate.finish()
+                    self.refreshTask = nil
+                }
+            }
             do {
+                let startedAt = Date()
                 let snapshot = try await client.fetchDashboardSnapshot()
+                try Task.checkCancellation()
                 guard generation == self.refreshGeneration else {
                     self.logger.info("refresh ignored stale generation=\(generation) current=\(self.refreshGeneration) range=\(snapshot.selectedRange.rawValue)")
                     return
                 }
-                self.logger.info("refresh ok range=\(snapshot.selectedRange.rawValue) health=\(snapshot.health.label) requests=\(snapshot.aggregate.scope.totalRequests) failures=\(snapshot.aggregate.scope.failureCount) adapters=\(snapshot.adapters.count) errors=\(snapshot.errors.count)")
+                self.logger.info("refresh ok elapsedMs=\(Self.elapsedMilliseconds(since: startedAt)) range=\(snapshot.selectedRange.rawValue) health=\(snapshot.health.label) requests=\(snapshot.aggregate.scope.totalRequests) failures=\(snapshot.aggregate.scope.failureCount) adapters=\(snapshot.adapters.count) errors=\(snapshot.errors.count)")
+                do {
+                    try self.snapshotStore.save(snapshot, for: self.config ?? .defaultConfig)
+                } catch {
+                    self.logger.error("dashboard cache save failed \(error.localizedDescription)")
+                }
                 self.showSnapshot(snapshot)
+            } catch is CancellationError {
+                self.logger.info("refresh cancelled generation=\(generation)")
             } catch {
                 guard generation == self.refreshGeneration else {
                     self.logger.info("refresh error ignored stale generation=\(generation) current=\(self.refreshGeneration)")
                     return
                 }
                 self.logger.error("refresh failed \(error.localizedDescription)")
-                self.showError(error.localizedDescription)
+                if self.lastSnapshot == nil {
+                    self.showError(error.localizedDescription)
+                } else {
+                    self.renderRefreshErrorTooltip(error.localizedDescription)
+                }
             }
         }
+    }
+
+    private func cancelRefresh() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        refreshGate.reset()
+    }
+
+    private static func elapsedMilliseconds(since start: Date) -> Int {
+        max(0, Int(Date().timeIntervalSince(start) * 1_000))
+    }
+
+    private func renderRefreshingTooltip() {
+        guard let snapshot = lastSnapshot else { return }
+        let texts = TextBundle.forLanguage(config?.resolvedLanguage ?? .english)
+        let updated = DateFormatter.localizedString(
+            from: snapshot.refreshedAt,
+            dateStyle: .none,
+            timeStyle: .medium
+        )
+        statusItem.button?.toolTip = "\(texts.updated) \(updated) · \(texts.loading)"
+    }
+
+    private func renderRefreshErrorTooltip(_ message: String) {
+        guard let snapshot = lastSnapshot else { return }
+        let texts = TextBundle.forLanguage(config?.resolvedLanguage ?? .english)
+        let updated = DateFormatter.localizedString(
+            from: snapshot.refreshedAt,
+            dateStyle: .none,
+            timeStyle: .medium
+        )
+        statusItem.button?.toolTip = "\(texts.updated) \(updated) · \(texts.error): \(message)"
     }
 
     func showSnapshot(_ snapshot: UsageDashboardSnapshot) {
@@ -432,12 +495,18 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
             isSavingConfig = false
             config = nextConfig
             client = UsageClient(config: nextConfig, logger: logger)
+            cancelRefresh()
             refreshGeneration += 1
-            lastSnapshot = nil
+            lastSnapshot = snapshotStore.load(for: nextConfig)
             logger.info("time range selected tab=\(range.rawValue)")
-            let texts = TextBundle.forLanguage(nextConfig.resolvedLanguage)
-            statusItem.button?.title = "RM \(texts.loading)"
-            renderSnapshotMenuView()
+            if let lastSnapshot {
+                showSnapshot(lastSnapshot)
+                renderRefreshingTooltip()
+            } else {
+                let texts = TextBundle.forLanguage(nextConfig.resolvedLanguage)
+                statusItem.button?.title = "RM \(texts.loading)"
+                renderSnapshotMenuView()
+            }
             refreshNow()
         } catch {
             isSavingConfig = false

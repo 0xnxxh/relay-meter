@@ -278,7 +278,7 @@ struct UsageAggregateBucket: Decodable {
     var estimatedCost: Double?
 }
 
-struct UsageScope {
+struct UsageScope: Codable {
     var totalRequests = 0
     var successCount = 0
     var failureCount = 0
@@ -343,7 +343,7 @@ enum UsageCost {
     }
 }
 
-struct UsageRankingRow {
+struct UsageRankingRow: Codable {
     var label: String
     var requests: Int
     var failures: Int
@@ -360,7 +360,7 @@ struct UsageRankingRow {
     }
 }
 
-struct UsageTrendPoint {
+struct UsageTrendPoint: Codable {
     var bucketStartMs: Int
     var label: String
     var requests: Int
@@ -380,25 +380,25 @@ struct NewAPIActivityRow: Decodable {
     var tokenUsed: Int
 }
 
-enum UsageActivityDayState: Equatable {
+enum UsageActivityDayState: Codable, Equatable {
     case observed
     case knownZero
     case partial
     case unknown
 }
 
-enum UsageActivityAvailability: Equatable {
+enum UsageActivityAvailability: Codable, Equatable {
     case complete
     case partial
     case unavailable
 }
 
-enum UsageActivityUnavailableReason: Equatable {
+enum UsageActivityUnavailableReason: Codable, Equatable {
     case dataExportDisabled
     case requestFailed
 }
 
-struct UsageActivityDay: Equatable {
+struct UsageActivityDay: Codable, Equatable {
     let start: Date
     var requests: Int
     var failures: Int
@@ -406,14 +406,14 @@ struct UsageActivityDay: Equatable {
     var state: UsageActivityDayState
 }
 
-struct UsageActivityDataset {
+struct UsageActivityDataset: Codable {
     let bounds: UsageDateBounds
     var days: [UsageActivityDay]
     var availability: UsageActivityAvailability
     var unavailableReason: UsageActivityUnavailableReason?
 }
 
-struct UsageSnapshot {
+struct UsageSnapshot: Codable {
     var sourceID: String
     var sourceName: String
     var platform: MonitorPlatform
@@ -437,12 +437,12 @@ struct UsageSnapshot {
     }
 }
 
-struct AdapterSnapshotError {
+struct AdapterSnapshotError: Codable {
     var adapterName: String
     var message: String
 }
 
-struct UsageDashboardSnapshot {
+struct UsageDashboardSnapshot: Codable {
     static let aggregateSourceID = "all"
     var selectedRange: UsageTimeRange
     var aggregate: UsageSnapshot

@@ -1,6 +1,6 @@
 import Foundation
 
-struct UsageDateBounds: Equatable {
+struct UsageDateBounds: Codable, Equatable {
     let start: Date
     let end: Date
 }

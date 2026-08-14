@@ -107,14 +107,12 @@ private struct CLIProxyAPIProUsageAdapter {
         async let activity = fetchActivity(bounds: activityBounds)
         async let recent = fetchScope(fromMs: minutesAgoMs(15), groupBy: [])
         async let models = fetchScope(fromMs: fromMs, interval: interval, limit: limit, groupBy: ["model"])
-        async let apiKeys = fetchScope(fromMs: fromMs, interval: interval, limit: limit, groupBy: ["api_key_hash"])
 
         let todayBuckets = try await today
         let activityDataset = await activity
         let recentBuckets = try await recent
         let modelBuckets = try await models
-        let apiKeyBuckets = try await apiKeys
-        logger.info("cliproxyapi-pro snapshot range=\(range.rawValue) interval=\(interval) buckets=\(todayBuckets.count) recent=\(recentBuckets.count) models=\(modelBuckets.count) apiKeys=\(apiKeyBuckets.count)")
+        logger.info("cliproxyapi-pro snapshot range=\(range.rawValue) interval=\(interval) buckets=\(todayBuckets.count) recent=\(recentBuckets.count) models=\(modelBuckets.count)")
 
         return UsageSnapshot(
             sourceID: "primary",
@@ -126,7 +124,7 @@ private struct CLIProxyAPIProUsageAdapter {
             trendPoints: trendPoints(todayBuckets, range: range),
             activity: activityDataset,
             topModels: rank(modelBuckets: modelBuckets, label: \.model),
-            topApiKeys: rank(modelBuckets: apiKeyBuckets, label: \.apiKeyHash).map(maskHashRow),
+            topApiKeys: [],
             refreshedAt: Date()
         )
     }
@@ -235,7 +233,6 @@ private struct Sub2APIUsageAdapter {
         async let trend: Sub2APIEnvelope<Sub2APITrendPayload> = get("/api/v1/admin/dashboard/trend?\(query)&granularity=\(range == .today ? "hour" : "day")")
         async let activity = fetchActivity(bounds: activityBounds, query: activityQuery)
         async let models: Sub2APIEnvelope<Sub2APIModelsPayload> = get("/api/v1/admin/dashboard/models?\(query)&model_source=requested")
-        async let apiKeys: Sub2APIEnvelope<Sub2APIAPIKeyTrendPayload> = get("/api/v1/admin/dashboard/api-keys-trend?\(query)&granularity=day&limit=3")
 
         let statsData = try await stats.data
         let trendData = try await trend.data.trend
@@ -252,11 +249,8 @@ private struct Sub2APIUsageAdapter {
         let modelRows = try await models.data.models.map {
             UsageRankingRow(label: $0.model.ifEmpty("-"), requests: $0.requests, failures: 0, tokens: $0.totalTokens)
         }
-        let apiKeyRows = try await apiKeys.data.trend.map {
-            UsageRankingRow(label: $0.keyName.ifEmpty("#\($0.apiKeyId)"), requests: $0.requests, failures: 0, tokens: $0.tokens)
-        }
 
-        logger.info("sub2api snapshot range=\(range.rawValue) trend=\(trendPoints.count) models=\(modelRows.count) apiKeys=\(apiKeyRows.count)")
+        logger.info("sub2api snapshot range=\(range.rawValue) trend=\(trendPoints.count) models=\(modelRows.count)")
         var rangeScope = statsData.scope(for: range)
         if trendData.allSatisfy({ $0.actualCost != nil }) {
             rangeScope.costUSD = trendData.compactMap(\.actualCost).reduce(0, +)
@@ -271,7 +265,7 @@ private struct Sub2APIUsageAdapter {
             trendPoints: trendPoints.sorted { $0.bucketStartMs < $1.bucketStartMs }.suffix(30).map { $0 },
             activity: activityDataset,
             topModels: modelRows.sortedForRanking().prefix(3).map { $0 },
-            topApiKeys: apiKeyRows.sortedForRanking().prefix(3).map { $0 },
+            topApiKeys: [],
             refreshedAt: Date()
         )
     }
@@ -351,7 +345,7 @@ private struct NewAPIUsageAdapter {
             trendPoints: trendPoints(from: logItems, range: range),
             activity: activityDataset,
             topModels: ranking(from: logItems, key: \.modelName),
-            topApiKeys: ranking(from: logItems, key: \.tokenName),
+            topApiKeys: [],
             refreshedAt: Date()
         )
     }
@@ -806,15 +800,6 @@ private func mergeRankingRows(_ rows: [UsageRankingRow], adapterName: String?, i
     }
 }
 
-private func maskHashRow(_ row: UsageRankingRow) -> UsageRankingRow {
-    UsageRankingRow(label: maskHash(row.label), requests: row.requests, failures: row.failures, tokens: row.tokens)
-}
-
-private func maskHash(_ value: String) -> String {
-    if value == "-" || value.count <= 12 { return value }
-    return "\(value.prefix(6))...\(value.suffix(6))"
-}
-
 private func parseSub2APIDateMs(_ value: String) -> Int {
     let formats = ["yyyy-MM-dd HH:00", "yyyy-MM-dd HH", "yyyy-MM-dd"]
     for format in formats {
@@ -896,17 +881,6 @@ private struct Sub2APIModelStat: Decodable {
     var model: String
     var requests: Int
     var totalTokens: Int
-}
-
-private struct Sub2APIAPIKeyTrendPayload: Decodable {
-    var trend: [Sub2APIAPIKeyTrendPoint]
-}
-
-private struct Sub2APIAPIKeyTrendPoint: Decodable {
-    var apiKeyId: Int
-    var keyName: String
-    var requests: Int
-    var tokens: Int
 }
 
 private struct NewAPIEnvelope<T: Decodable>: Decodable {
