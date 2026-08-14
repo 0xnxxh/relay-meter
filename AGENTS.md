@@ -13,11 +13,11 @@
 |Logs:`AppLogger.swift` writes to `~/Library/Logs/relay-meter/relay-meter.log`; logs must not include management keys
 |Build:`scripts/build_and_run.sh build` compiles release binary, bundles Sparkle, writes Info.plist from `VERSION` and `BUILD_NUMBER`, ad-hoc signs app
 |Verify:`scripts/build_and_run.sh --verify` launches bundled app and checks process starts|`git diff --check` before commit
-|ReleaseCheck:`scripts/release_check.sh` builds app, creates DMG, generates Sparkle appcast, verifies plist/codesign/dmg/appcast URLs
+|ReleaseCheck:`scripts/release_check.sh` tests the publish workflow, builds app, creates DMG, generates Sparkle appcast, verifies plist/codesign/dmg/appcast URLs
 |Version:`VERSION` is app version|`BUILD_NUMBER` is numeric CFBundleVersion|patch releases normally increment both
 |Sparkle:`scripts/generate_appcast.sh` needs `sparkle_private_key` or `SPARKLE_PRIVATE_KEY`; `sparkle_private_key` is ignored and must never be committed
 |Distribution:`dist/` is ignored; release assets are `dist/Relay-Meter-v$VERSION.dmg` and `dist/appcast.xml`
-|Publish:`CONFIRM_PUBLISH=1 scripts/publish_release.sh` requires a clean worktree, runs release check, creates tag `v$VERSION`, and publishes via `gh release create`
+|Publish:`CONFIRM_PUBLISH=1 scripts/publish_release.sh` locks to one run, requires clean synchronized `main`, runs a visible release check, pushes and verifies tag `v$VERSION`, uploads a draft, verifies asset SHA-256 digests, then publishes it
 |ReleaseNotes:`RELEASE_NOTES.md` must start with `# Relay Meter v$VERSION`; update it before publishing
 |Git:Use explicit `git add` paths; do not stage `.build/`, `dist/`, `Vendor/`, `.codex/`, `sparkle_private_key`, or local screenshots
 |Scope:Keep UI changes in AppKit views/components; avoid unrelated refactors or new dependencies unless the release task requires them
