@@ -209,6 +209,18 @@ enum MenuValueFormatter {
         }
         return String(format: "%.1f h", Double(value) / 3_600_000)
     }
+
+    static func currencyUSD(_ value: Double) -> String {
+        let digits = abs(value) < 1 && value != 0 ? 4 : 2
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.numberStyle = .decimal
+        formatter.roundingMode = .halfUp
+        formatter.minimumFractionDigits = digits
+        formatter.maximumFractionDigits = digits
+        formatter.usesGroupingSeparator = false
+        return "$\(formatter.string(from: NSNumber(value: value)) ?? "--")"
+    }
 }
 
 func menuIconTitle(_ title: String, accent: NSColor, icon: MenuPixelIconKind = .status) -> NSView {

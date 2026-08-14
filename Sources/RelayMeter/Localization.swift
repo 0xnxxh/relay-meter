@@ -8,6 +8,9 @@ struct TextBundle {
     let tokens: String
     let cache: String
     let latency: String
+    let cost: String
+    let actualCost: String
+    let estimatedCost: String
     let recent: String
     let trend: String
     let activity: String
@@ -81,6 +84,7 @@ struct TextBundle {
     private static let chinese = TextBundle(
         today: "今日", live: "实时", traffic: "流量", requests: "请求", failures: "失败",
         successRate: "成功率", tokens: "Token", cache: "缓存", latency: "延迟",
+        cost: "花费", actualCost: "实际花费", estimatedCost: "预估花费",
         recent: "最近 15 分钟", trend: "趋势", activity: "用量活动",
         activityDaily: "每日", activityWeekly: "每周", activityMonthly: "每月", activityCumulative: "累计",
         activityThisWeek: "本周", activityThisMonth: "本月", activityThisYear: "日历年",
@@ -111,7 +115,8 @@ struct TextBundle {
     private static let english = TextBundle(
         today: "Today", live: "Live", traffic: "Traffic", requests: "requests",
         failures: "failures", successRate: "Success Rate", tokens: "Tokens",
-        cache: "Cache", latency: "Latency", recent: "Last 15m", trend: "Trend", activity: "Usage Activity",
+        cache: "Cache", latency: "Latency", cost: "Spend", actualCost: "Actual spend", estimatedCost: "Estimated spend",
+        recent: "Last 15m", trend: "Trend", activity: "Usage Activity",
         activityDaily: "Daily", activityWeekly: "Weekly", activityMonthly: "Monthly", activityCumulative: "Cumulative",
         activityThisWeek: "This Week", activityThisMonth: "This Month", activityThisYear: "Calendar Year",
         activityLast7Days: "Last 7 Days", activityLast30Days: "Last 30 Days", activityLastYear: "Rolling Year",
@@ -168,6 +173,8 @@ struct SettingsTextBundle {
     let displaySection: String
     let language: String
     let menuBarTitle: String
+    let launchAtLogin: String
+    let approvalRequired: String
     let cardsSection: String
     let cancel: String
     let save: String
@@ -184,6 +191,7 @@ struct SettingsTextBundle {
     let metricLatency: String
     let metricCache: String
     let metricRecent: String
+    let metricCost: String
     let itemTraffic: String
     let itemSuccessRate: String
     let itemTokens: String
@@ -216,6 +224,7 @@ struct SettingsTextBundle {
         case .latency: metricLatency
         case .cache: metricCache
         case .recent: metricRecent
+        case .cost: metricCost
         }
     }
 
@@ -242,6 +251,8 @@ struct SettingsTextBundle {
         displaySection: "显示",
         language: "语言",
         menuBarTitle: "菜单栏默认显示",
+        launchAtLogin: "登录时启动",
+        approvalRequired: "需要授权",
         cardsSection: "卡片",
         cancel: "取消",
         save: "保存",
@@ -258,6 +269,7 @@ struct SettingsTextBundle {
         metricLatency: "平均延迟",
         metricCache: "缓存 Token",
         metricRecent: "最近 15 分钟活跃",
+        metricCost: "花费",
         itemTraffic: "流量",
         itemSuccessRate: "成功率",
         itemTokens: "Token",
@@ -278,6 +290,8 @@ struct SettingsTextBundle {
         displaySection: "Display",
         language: "Language",
         menuBarTitle: "Menu Bar Title",
+        launchAtLogin: "Launch at Login",
+        approvalRequired: "Approval Required",
         cardsSection: "Cards",
         cancel: "Cancel",
         save: "Save",
@@ -294,6 +308,7 @@ struct SettingsTextBundle {
         metricLatency: "Average latency",
         metricCache: "Cache tokens",
         metricRecent: "Last 15m activity",
+        metricCost: "Spend",
         itemTraffic: "Traffic",
         itemSuccessRate: "Success rate",
         itemTokens: "Tokens",

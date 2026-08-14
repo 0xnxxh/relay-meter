@@ -224,6 +224,7 @@ enum DisplayMetric: String, Codable, CaseIterable {
     case latency
     case cache
     case recent
+    case cost
 }
 
 enum DisplayItem: String, Codable, CaseIterable {
@@ -272,6 +273,7 @@ struct UsageAggregateBucket: Decodable {
     var cacheTokens: Int?
     var avgLatencyMs: Int?
     var avgTtftMs: Int?
+    var estimatedCost: Double?
 }
 
 struct UsageScope {
@@ -283,6 +285,8 @@ struct UsageScope {
     var outputTokens = 0
     var reasoningTokens = 0
     var cacheTokens = 0
+    var costUSD: Double?
+    var costIsEstimated = false
     var weightedLatencyTotal = 0
     var latencyWeight = 0
     var weightedTtftTotal = 0
@@ -321,6 +325,19 @@ struct UsageScope {
         latencyWeight += other.latencyWeight
         weightedTtftTotal += other.weightedTtftTotal
         ttftWeight += other.ttftWeight
+    }
+}
+
+enum UsageCost {
+    static func totalIfComplete(_ values: [Double?]) -> Double? {
+        guard !values.isEmpty, values.allSatisfy({ $0 != nil }) else { return nil }
+        return values.compactMap { $0 }.reduce(0, +)
+    }
+
+    static func totalIfComplete(_ scopes: [UsageScope], expectedCount: Int) -> (value: Double, isEstimated: Bool)? {
+        guard scopes.count == expectedCount else { return nil }
+        guard let value = totalIfComplete(scopes.map(\.costUSD)) else { return nil }
+        return (value, scopes.contains(where: \.costIsEstimated))
     }
 }
 

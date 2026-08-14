@@ -15,7 +15,7 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private var config: AppConfig
-    private let onSave: (AppConfig) -> Void
+    private let onSave: (AppConfig, Bool) -> Void
     private let onCheckForUpdates: () -> Void
     private var adapterControls: [AdapterConfigControls] = []
     private let adaptersStack = NSStackView()
@@ -23,6 +23,7 @@ final class SettingsWindowController: NSWindowController {
     private let languagePopup = PixelPopupButton()
     private let titlePopup = PixelPopupButton()
     private let rangePopup = PixelPopupButton()
+    private let launchAtLoginButton: NSButton
     private var itemButtons: [DisplayItem: NSButton] = [:]
     private weak var headerView: NSView?
     private weak var footerView: NSView?
@@ -40,12 +41,24 @@ final class SettingsWindowController: NSWindowController {
 
     init(
         config: AppConfig,
-        onSave: @escaping (AppConfig) -> Void,
+        launchAtLoginEnabled: Bool,
+        launchAtLoginRequiresApproval: Bool,
+        onSave: @escaping (AppConfig, Bool) -> Void,
         onCheckForUpdates: @escaping () -> Void
     ) {
         self.config = config
         self.onSave = onSave
         self.onCheckForUpdates = onCheckForUpdates
+        let initialTexts = SettingsTextBundle.forLanguage(config.resolvedLanguage)
+        launchAtLoginButton = NSButton(
+            checkboxWithTitle: launchAtLoginRequiresApproval ? initialTexts.approvalRequired : initialTexts.enabled,
+            target: nil,
+            action: nil
+        )
+        launchAtLoginButton.state = launchAtLoginEnabled ? .on : .off
+        launchAtLoginButton.identifier = NSUserInterfaceItemIdentifier("launchAtLogin")
+        launchAtLoginButton.font = RelayTheme.font(size: 12, weight: .bold)
+        launchAtLoginButton.contentTintColor = RelayTheme.accent
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Layout.windowSize),
             styleMask: [.titled, .closable, .resizable],
@@ -240,7 +253,8 @@ final class SettingsWindowController: NSWindowController {
             rows: [
                 formRow(title: settingsTexts.language, control: languagePopup),
                 formRow(title: settingsTexts.menuBarTitle, control: titlePopup),
-                formRow(title: texts.range, control: rangePopup)
+                formRow(title: texts.range, control: rangePopup),
+                formRow(title: settingsTexts.launchAtLogin, control: launchAtLoginButton)
             ]
         ))
 
@@ -626,7 +640,7 @@ final class SettingsWindowController: NSWindowController {
         config.activityPeriod = config.resolvedActivityPeriod
         config.display = config.titleMetric?.rawValue
         config.listItems = DisplayItem.allCases.filter { itemButtons[$0]?.state == .on }
-        onSave(config)
+        onSave(config, launchAtLoginButton.state == .on)
         close()
     }
 

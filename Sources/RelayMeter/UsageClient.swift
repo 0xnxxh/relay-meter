@@ -238,7 +238,8 @@ private struct Sub2APIUsageAdapter {
         async let apiKeys: Sub2APIEnvelope<Sub2APIAPIKeyTrendPayload> = get("/api/v1/admin/dashboard/api-keys-trend?\(query)&granularity=day&limit=3")
 
         let statsData = try await stats.data
-        let trendPoints = try await trend.data.trend.map { point in
+        let trendData = try await trend.data.trend
+        let trendPoints = trendData.map { point in
             UsageTrendPoint(
                 bucketStartMs: parseSub2APIDateMs(point.date),
                 label: point.date,
@@ -256,12 +257,16 @@ private struct Sub2APIUsageAdapter {
         }
 
         logger.info("sub2api snapshot range=\(range.rawValue) trend=\(trendPoints.count) models=\(modelRows.count) apiKeys=\(apiKeyRows.count)")
+        var rangeScope = statsData.scope(for: range)
+        if trendData.allSatisfy({ $0.actualCost != nil }) {
+            rangeScope.costUSD = trendData.compactMap(\.actualCost).reduce(0, +)
+        }
         return UsageSnapshot(
             sourceID: "primary",
             sourceName: config.primaryAdapter.displayName,
             platform: .sub2api,
             selectedRange: range,
-            scope: statsData.scope(for: range),
+            scope: rangeScope,
             recent: statsData.recentScope(),
             trendPoints: trendPoints.sorted { $0.bucketStartMs < $1.bucketStartMs }.suffix(30).map { $0 },
             activity: activityDataset,
@@ -327,8 +332,9 @@ private struct NewAPIUsageAdapter {
         let toSeconds = nowMs() / 1_000
 
         async let logs: NewAPIEnvelope<NewAPILogPage> = get("/api/log/?type=2&start_timestamp=\(fromSeconds)&end_timestamp=\(toSeconds)&p=0&page_size=100")
-        async let activity = fetchActivity(bounds: activityBounds)
         async let recentLogs: NewAPIEnvelope<NewAPILogPage> = get("/api/log/?type=2&start_timestamp=\(minutesAgoMs(15) / 1_000)&end_timestamp=\(toSeconds)&p=0&page_size=100")
+        let status = await fetchStatus()
+        async let activity = fetchActivity(bounds: activityBounds, status: status)
 
         let logItems = try await logs.data.items
         let activityDataset = await activity
@@ -340,8 +346,8 @@ private struct NewAPIUsageAdapter {
             sourceName: config.primaryAdapter.displayName,
             platform: .newApi,
             selectedRange: range,
-            scope: scope(from: logItems),
-            recent: scope(from: recentItems),
+            scope: scope(from: logItems, quotaPerUnit: status?.quotaPerUnit),
+            recent: scope(from: recentItems, quotaPerUnit: status?.quotaPerUnit),
             trendPoints: trendPoints(from: logItems, range: range),
             activity: activityDataset,
             topModels: ranking(from: logItems, key: \.modelName),
@@ -360,22 +366,29 @@ private struct NewAPIUsageAdapter {
         )
     }
 
-    private func fetchActivity(bounds: UsageDateBounds) async -> UsageActivityDataset {
+    private func fetchStatus() async -> NewAPIStatusData? {
+        do {
+            let response: NewAPIEnvelope<NewAPIStatusData> = try await get("/api/status")
+            return response.data
+        } catch {
+            logger.error("new-api status failed \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func fetchActivity(bounds: UsageDateBounds, status: NewAPIStatusData?) async -> UsageActivityDataset {
         let cacheKey = activityCacheKey(config: config, bounds: bounds)
         if let cached = await UsageActivityCache.shared.value(for: cacheKey) {
             return cached
         }
 
-        do {
-            let status: NewAPIEnvelope<NewAPIStatusData> = try await get("/api/status")
-            if status.data.enableDataExport == false {
-                let unavailable = UsageActivitySeries.unavailable(bounds: bounds, reason: .dataExportDisabled)
-                await UsageActivityCache.shared.store(unavailable, for: cacheKey)
-                return unavailable
-            }
-        } catch {
-            logger.error("new-api activity status failed \(error.localizedDescription)")
+        guard let status else {
             let unavailable = UsageActivitySeries.unavailable(bounds: bounds, reason: .requestFailed)
+            await UsageActivityCache.shared.store(unavailable, for: cacheKey)
+            return unavailable
+        }
+        if status.enableDataExport == false {
+            let unavailable = UsageActivitySeries.unavailable(bounds: bounds, reason: .dataExportDisabled)
             await UsageActivityCache.shared.store(unavailable, for: cacheKey)
             return unavailable
         }
@@ -420,7 +433,7 @@ private struct NewAPIUsageAdapter {
         return dataset
     }
 
-    private func scope(from logs: [NewAPILog]) -> UsageScope {
+    private func scope(from logs: [NewAPILog], quotaPerUnit: Double?) -> UsageScope {
         var scope = UsageScope()
         for log in logs {
             let failed = log.type == 5
@@ -434,6 +447,9 @@ private struct NewAPIUsageAdapter {
                 scope.weightedLatencyTotal += log.useTime
                 scope.latencyWeight += 1
             }
+        }
+        if let quotaPerUnit, quotaPerUnit > 0, logs.allSatisfy({ $0.quota != nil }) {
+            scope.costUSD = logs.compactMap(\.quota).reduce(0, +) / quotaPerUnit
         }
         return scope
     }
@@ -634,6 +650,10 @@ private func summarize(_ buckets: [UsageAggregateBucket]) -> UsageScope {
             summary.ttftWeight += bucket.totalRequests
         }
     }
+    if buckets.allSatisfy({ $0.estimatedCost != nil }) {
+        summary.costUSD = buckets.compactMap(\.estimatedCost).reduce(0, +)
+        summary.costIsEstimated = true
+    }
     return summary
 }
 
@@ -746,6 +766,14 @@ private func aggregateSnapshot(
         mergeRankingRows(snapshot.topModels, prefix: snapshot.sourceName, into: &modelRows)
         mergeRankingRows(snapshot.topApiKeys, prefix: snapshot.sourceName, into: &apiKeyRows)
     }
+    if let cost = UsageCost.totalIfComplete(snapshots.map(\.scope), expectedCount: expectedActivitySourceCount) {
+        scope.costUSD = cost.value
+        scope.costIsEstimated = cost.isEstimated
+    }
+    if let cost = UsageCost.totalIfComplete(snapshots.map(\.recent), expectedCount: expectedActivitySourceCount) {
+        recent.costUSD = cost.value
+        recent.costIsEstimated = cost.isEstimated
+    }
 
     return UsageSnapshot(
         sourceID: UsageDashboardSnapshot.aggregateSourceID,
@@ -855,6 +883,7 @@ private struct Sub2APITrendPoint: Decodable {
     var cacheCreationTokens: Int
     var cacheReadTokens: Int
     var totalTokens: Int
+    var actualCost: Double?
 }
 
 private struct Sub2APIModelsPayload: Decodable {
@@ -886,6 +915,7 @@ private struct NewAPIEnvelope<T: Decodable>: Decodable {
 
 private struct NewAPIStatusData: Decodable {
     var enableDataExport: Bool?
+    var quotaPerUnit: Double?
 }
 
 private struct NewAPIStat: Decodable {
@@ -948,6 +978,7 @@ private struct NewAPILog: Decodable {
     var promptTokens: Int
     var completionTokens: Int
     var useTime: Int
+    var quota: Double?
 }
 
 private extension Array where Element == UsageRankingRow {

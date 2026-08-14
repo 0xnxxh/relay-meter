@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ServiceManagement
 import Sparkle
 
 @MainActor
@@ -257,6 +258,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         case .latency: return title(snapshot, aggregate.scope.avgLatencyMs.map(MenuValueFormatter.duration) ?? "--")
         case .cache: return title(snapshot, "\(MenuValueFormatter.compact(aggregate.scope.cacheTokens)) \(texts.cacheUnit)")
         case .recent: return title(snapshot, "\(MenuValueFormatter.compact(aggregate.recent.totalRequests)) / \(texts.last15m)")
+        case .cost: return title(snapshot, aggregate.scope.costUSD.map(MenuValueFormatter.currencyUSD) ?? "--")
         case .requests: return title(snapshot, "\(MenuValueFormatter.compact(aggregate.scope.totalRequests)) / \(MenuValueFormatter.percent(aggregate.scope.successRate))")
         }
     }
@@ -461,9 +463,14 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         guard let config else { return }
+        let launchAtLoginStatus = SMAppService.mainApp.status
         let controller = SettingsWindowController(
             config: config,
-            onSave: { [weak self] nextConfig in self?.saveSettings(nextConfig) },
+            launchAtLoginEnabled: Self.launchAtLoginRequested(status: launchAtLoginStatus),
+            launchAtLoginRequiresApproval: launchAtLoginStatus == .requiresApproval,
+            onSave: { [weak self] nextConfig, launchAtLoginEnabled in
+                self?.saveSettings(nextConfig, launchAtLoginEnabled: launchAtLoginEnabled)
+            },
             onCheckForUpdates: { [weak self] in self?.checkForUpdates() }
         )
         settingsWindow = controller
@@ -471,7 +478,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func saveSettings(_ nextConfig: AppConfig) {
+    func saveSettings(_ nextConfig: AppConfig, launchAtLoginEnabled: Bool) {
         do {
             isSavingConfig = true
             try configStore.save(nextConfig)
@@ -483,6 +490,57 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
             isSavingConfig = false
             logger.error("settings save failed \(error.localizedDescription)")
             showError(error.localizedDescription)
+            return
+        }
+
+        if launchAtLoginEnabled != Self.launchAtLoginRequested(status: SMAppService.mainApp.status) {
+            do {
+                try Self.setLaunchAtLogin(enabled: launchAtLoginEnabled, language: nextConfig.resolvedLanguage)
+            } catch {
+                logger.error("launch at login update failed \(error.localizedDescription)")
+                showError(error.localizedDescription)
+            }
+        }
+    }
+
+    private static func launchAtLoginRequested(status: SMAppService.Status) -> Bool {
+        switch status {
+        case .enabled, .requiresApproval:
+            return true
+        case .notRegistered, .notFound:
+            return false
+        @unknown default:
+            return false
+        }
+    }
+
+    private static func setLaunchAtLogin(enabled: Bool, language: AppLanguage) throws {
+        let service = SMAppService.mainApp
+        if enabled {
+            switch service.status {
+            case .enabled:
+                return
+            case .requiresApproval:
+                SMAppService.openSystemSettingsLoginItems()
+                throw LaunchAtLoginError.requiresApproval(language)
+            case .notRegistered, .notFound:
+                try service.register()
+                if service.status == .requiresApproval {
+                    SMAppService.openSystemSettingsLoginItems()
+                    throw LaunchAtLoginError.requiresApproval(language)
+                }
+            @unknown default:
+                try service.register()
+            }
+        } else {
+            switch service.status {
+            case .notRegistered, .notFound:
+                return
+            case .enabled, .requiresApproval:
+                try service.unregister()
+            @unknown default:
+                try service.unregister()
+            }
         }
     }
 
@@ -510,6 +568,19 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
+}
+
+private enum LaunchAtLoginError: LocalizedError {
+    case requiresApproval(AppLanguage)
+
+    var errorDescription: String? {
+        switch self {
+        case .requiresApproval(.chinese):
+            "Relay Meter 需要在“系统设置 > 通用 > 登录项”中获得授权。"
+        case .requiresApproval(.english):
+            "Relay Meter needs approval in System Settings > General > Login Items."
+        }
+    }
 }
 
 let app = NSApplication.shared

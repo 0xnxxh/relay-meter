@@ -405,6 +405,10 @@ final class SnapshotMenuView: NSView {
         }
 
         if enabled.contains(.tokens) || enabled.contains(.cache) {
+            let costLabel = snapshot.scope.costUSD == nil
+                ? texts.cost
+                : (snapshot.scope.costIsEstimated ? texts.estimatedCost : texts.actualCost)
+            let costValue = snapshot.scope.costUSD.map(MenuValueFormatter.currencyUSD) ?? "--"
             cards.append(metricCard(
                 title: texts.tokens,
                 value: MenuValueFormatter.compact(snapshot.scope.totalTokens),
@@ -413,7 +417,8 @@ final class SnapshotMenuView: NSView {
                 icon: .tokens,
                 footers: [
                     ("\(texts.input)/\(texts.output)", "\(MenuValueFormatter.compact(snapshot.scope.inputTokens)) / \(MenuValueFormatter.compact(snapshot.scope.outputTokens))"),
-                    (texts.cache, "\(MenuValueFormatter.compact(snapshot.scope.cacheTokens)) / \(MenuValueFormatter.percent(snapshot.scope.cacheRate))")
+                    (texts.cache, "\(MenuValueFormatter.compact(snapshot.scope.cacheTokens)) / \(MenuValueFormatter.percent(snapshot.scope.cacheRate))"),
+                    (costLabel, costValue)
                 ]
             ))
         }

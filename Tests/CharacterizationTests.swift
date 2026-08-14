@@ -6,6 +6,7 @@ struct CharacterizationTests {
     @MainActor
     static func main() async {
         testMenuValueFormatter()
+        testUsageCostAggregation()
         testHealthColors()
         testUsageActivityDateBounds()
         testActivityDisplayModes()
@@ -14,11 +15,15 @@ struct CharacterizationTests {
         testUsageActivitySourceAggregation()
         testUsageActivityQuantileIntensity()
         testNewAPIActivityRowDecoding()
+        await testCLIProxyCost()
+        await testSub2APICost()
         await testNewAPIActivityUsesAggregateEndpoint()
         testActivityMenuLayout()
+        testCostMenuLayout()
         testActivityWindowLayout()
         testEnglishSettingsCopy()
         testChineseSettingsCopy()
+        testLaunchAtLoginSetting()
         print("Characterization tests passed")
     }
 
@@ -31,6 +36,17 @@ struct CharacterizationTests {
         expect(MenuValueFormatter.duration(ms: 1_500) == "1.5 s", "second formatting changed")
         expect(MenuValueFormatter.duration(ms: 90_000) == "1.5 min", "minute formatting changed")
         expect(MenuValueFormatter.duration(ms: 5_400_000) == "1.5 h", "hour formatting changed")
+        expect(MenuValueFormatter.currencyUSD(12.345) == "$12.35", "USD cost formatting changed")
+        expect(MenuValueFormatter.currencyUSD(0.0004) == "$0.0004", "small USD costs must remain visible")
+    }
+
+    private static func testUsageCostAggregation() {
+        expect(UsageCost.totalIfComplete([1.25, 0.75]) == 2, "complete adapter costs must aggregate")
+        expect(UsageCost.totalIfComplete([1.25, nil]) == nil, "partial adapter costs must not look complete")
+        expect(UsageCost.totalIfComplete([]) == nil, "an empty adapter set has no cost total")
+        var pricedScope = UsageScope()
+        pricedScope.costUSD = 1
+        expect(UsageCost.totalIfComplete([pricedScope], expectedCount: 2) == nil, "a failed adapter must suppress the aggregate cost")
     }
 
     private static func testHealthColors() {
@@ -202,6 +218,45 @@ struct CharacterizationTests {
         expect(row.count == 7 && row.tokenUsed == 321, "new-api activity values must decode from the aggregate endpoint")
     }
 
+    private static func testCLIProxyCost() async {
+        RequestStubURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RequestStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        var config = AppConfig.defaultConfig
+        config.baseURL = "https://cliproxy.test"
+        config.adapters[0].baseURL = config.baseURL
+
+        let snapshot = try! await UsageClient(config: config, session: session).fetchSnapshot()
+        expect(snapshot.scope.costUSD == 1.25, "CLIProxy estimated cost must be exposed in USD")
+    }
+
+    private static func testSub2APICost() async {
+        RequestStubURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RequestStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        var config = AppConfig.defaultConfig
+        let adapter = AdapterConfig(
+            id: "sub2api-test",
+            name: "sub2api Test",
+            enabled: true,
+            platform: .sub2api,
+            baseURL: "https://sub2api.test",
+            managementKey: "test-token",
+            authHeaderName: "x-api-key",
+            newApiUserID: nil,
+            monitoringPath: "/admin/dashboard"
+        )
+        config.adapters = [adapter]
+        config.platform = .sub2api
+        config.baseURL = adapter.baseURL
+        config.managementKey = adapter.managementKey
+
+        let snapshot = try! await UsageClient(config: config, session: session).fetchSnapshot()
+        expect(snapshot.scope.costUSD == 2, "sub2api actual cost must follow the selected trend range")
+    }
+
     private static func testNewAPIActivityUsesAggregateEndpoint() async {
         RequestStubURLProtocol.reset()
         let configuration = URLSessionConfiguration.ephemeral
@@ -232,6 +287,7 @@ struct CharacterizationTests {
         let logRequests = requests.filter { $0.url?.path == "/api/log/" || $0.url?.path == "/api/log" }
         expect(logRequests.count == 2, "new-api activity must not add a raw-log request")
         expect(logRequests.allSatisfy { $0.url?.query?.contains("page_size=100") == true }, "new-api log requests must honor the upstream page limit")
+        expect(snapshot.scope.costUSD == 0.5, "new-api quota must use the upstream quota-per-unit conversion")
         expect(snapshot.activity.days.contains { $0.state == .observed }, "new-api aggregate rows must populate the activity dataset")
     }
 
@@ -265,6 +321,35 @@ struct CharacterizationTests {
         if let previewPath = ProcessInfo.processInfo.environment["RELAY_METER_ACTIVITY_CARD_PREVIEW_PATH"] {
             render(card, to: previewPath)
         }
+    }
+
+    @MainActor
+    private static func testCostMenuLayout() {
+        var scope = UsageScope()
+        scope.costUSD = 12.345
+        let snapshot = UsageSnapshot(
+            sourceID: "preview",
+            sourceName: "Preview",
+            platform: .sub2api,
+            selectedRange: .sevenDays,
+            scope: scope,
+            recent: UsageScope(),
+            trendPoints: [],
+            activity: previewActivityDataset(),
+            topModels: [],
+            topApiKeys: [],
+            refreshedAt: Date()
+        )
+        var config = AppConfig.defaultConfig
+        config.listItems = [.tokens]
+        let view = SnapshotMenuView(snapshot: snapshot, config: config, texts: TextBundle.forLanguage(.english))
+        var copy = Set<String>()
+        collectCopy(from: view, into: &copy)
+        expect(copy.contains("TOKENS"), "tokens card title missing")
+        expect(copy.contains("$12.35"), "tokens card spend value missing")
+        expect(copy.contains("ACTUAL SPEND"), "tokens card spend type missing")
+        expect(!copy.contains("CURRENCY"), "tokens card must not show a currency row")
+        expect(!copy.contains("RANGE"), "tokens card must not show a range row")
     }
 
     @MainActor
@@ -345,6 +430,7 @@ struct CharacterizationTests {
             "Relay Meter Settings", "Settings", "Configure adapters, menu bar display, and monitoring cards.",
             "ADAPTERS", "Name", "Base URL", "Access Key", "new-api User ID", "Refresh Interval (seconds)",
             "DISPLAY", "Language", "Menu Bar Title", "Range", "CARDS",
+            "Launch at Login", "Spend",
             "English", "Requests + success rate", "Total tokens", "Failures", "Success rate",
             "Average latency", "Cache tokens", "Last 15m activity", "Today", "7d", "30d", "All",
             "Traffic", "Tokens", "Cache", "Latency", "Last 15m", "Trend chart", "Top model", "Top API key", "Last updated",
@@ -361,6 +447,7 @@ struct CharacterizationTests {
             "Relay Meter 设置", "设置", "分别配置 adapter、菜单栏显示和监控卡片。",
             "ADAPTERS", "名称", "服务地址", "访问密钥", "new-api 用户 ID", "刷新间隔（秒）",
             "显示", "语言", "菜单栏默认显示", "时间范围", "卡片",
+            "登录时启动", "花费",
             "简体中文", "请求数 + 成功率", "总 Token", "失败数", "成功率",
             "平均延迟", "缓存 Token", "最近 15 分钟活跃", "今天", "7 天", "30 天", "全部",
             "流量", "Token", "缓存", "延迟", "最近 15 分钟", "趋势曲线图", "Top 模型", "Top API Key", "最后更新时间",
@@ -379,7 +466,13 @@ struct CharacterizationTests {
                 config.language = language
                 config.titleMetric = metric
                 config.timeRange = range
-                let controller = SettingsWindowController(config: config, onSave: { _ in }, onCheckForUpdates: {})
+                let controller = SettingsWindowController(
+                    config: config,
+                    launchAtLoginEnabled: true,
+                    launchAtLoginRequiresApproval: false,
+                    onSave: { _, _ in },
+                    onCheckForUpdates: {}
+                )
                 if let title = controller.window?.title {
                     copy.insert(title)
                 }
@@ -396,6 +489,44 @@ struct CharacterizationTests {
             }
         }
         return copy
+    }
+
+    @MainActor
+    private static func testLaunchAtLoginSetting() {
+        var savedLaunchAtLogin: Bool?
+        let controller = SettingsWindowController(
+            config: AppConfig.defaultConfig,
+            launchAtLoginEnabled: false,
+            launchAtLoginRequiresApproval: false,
+            onSave: { _, enabled in savedLaunchAtLogin = enabled },
+            onCheckForUpdates: {}
+        )
+        guard let contentView = controller.window?.contentView,
+              let toggle = findView(in: contentView, matching: {
+                  $0.identifier?.rawValue == "launchAtLogin"
+              }) as? NSButton,
+              let save = findButton(in: contentView, titled: "SAVE") else {
+            fatalError("launch-at-login settings controls missing")
+        }
+        expect(toggle.state == .off, "launch-at-login control must reflect system state")
+        toggle.performClick(nil)
+        save.performClick(nil)
+        expect(savedLaunchAtLogin == true, "saving settings must apply the launch-at-login choice")
+
+        let approvalController = SettingsWindowController(
+            config: AppConfig.defaultConfig,
+            launchAtLoginEnabled: true,
+            launchAtLoginRequiresApproval: true,
+            onSave: { _, _ in },
+            onCheckForUpdates: {}
+        )
+        guard let approvalView = approvalController.window?.contentView,
+              let approvalToggle = findView(in: approvalView, matching: {
+                  $0.identifier?.rawValue == "launchAtLogin"
+              }) as? NSButton else {
+            fatalError("launch-at-login approval state missing")
+        }
+        expect(approvalToggle.title == "Approval Required", "pending login-item approval must be explicit")
     }
 
     @MainActor
@@ -473,17 +604,28 @@ private final class RequestStubURLProtocol: URLProtocol {
         Self.lock.lock()
         Self.requests.append(request)
         Self.lock.unlock()
+        let host = request.url?.host ?? ""
         let path = request.url?.path ?? ""
         let body: String
-        switch path {
-        case "/api/status":
-            body = #"{"success":true,"message":"","data":{"enable_data_export":true}}"#
-        case "/api/data/", "/api/data":
+        switch (host, path) {
+        case ("cliproxy.test", _):
+            body = #"{"items":[{"bucketStartMs":1782864000000,"totalRequests":2,"successCount":2,"failureCount":0,"totalTokens":150,"inputTokens":100,"outputTokens":50,"reasoningTokens":0,"cacheTokens":0,"estimatedCost":1.25}]}"#
+        case ("sub2api.test", "/api/v1/admin/dashboard/stats"):
+            body = #"{"code":0,"message":"ok","data":{"total_requests":3,"total_input_tokens":100,"total_output_tokens":50,"total_cache_creation_tokens":0,"total_cache_read_tokens":0,"total_tokens":150,"today_requests":3,"today_input_tokens":100,"today_output_tokens":50,"today_cache_creation_tokens":0,"today_cache_read_tokens":0,"today_tokens":150,"average_duration_ms":250,"rpm":1,"tpm":50}}"#
+        case ("sub2api.test", "/api/v1/admin/dashboard/trend"):
+            body = #"{"code":0,"message":"ok","data":{"trend":[{"date":"2026-08-13","requests":1,"input_tokens":40,"output_tokens":10,"cache_creation_tokens":0,"cache_read_tokens":0,"total_tokens":50,"actual_cost":1.25},{"date":"2026-08-14","requests":2,"input_tokens":60,"output_tokens":40,"cache_creation_tokens":0,"cache_read_tokens":0,"total_tokens":100,"actual_cost":0.75}]}}"#
+        case ("sub2api.test", "/api/v1/admin/dashboard/models"):
+            body = #"{"code":0,"message":"ok","data":{"models":[]}}"#
+        case ("sub2api.test", "/api/v1/admin/dashboard/api-keys-trend"):
+            body = #"{"code":0,"message":"ok","data":{"trend":[]}}"#
+        case (_, "/api/status"):
+            body = #"{"success":true,"message":"","data":{"enable_data_export":true,"quota_per_unit":500000}}"#
+        case (_, "/api/data/"), (_, "/api/data"):
             let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
             let timestamp = components?.queryItems?.first { $0.name == "start_timestamp" }?.value ?? "0"
             body = #"{"success":true,"message":"","data":[{"created_at":\#(timestamp),"count":2,"token_used":40}]}"#
-        case "/api/log/", "/api/log":
-            body = #"{"success":true,"message":"","data":{"items":[]}}"#
+        case (_, "/api/log/"), (_, "/api/log"):
+            body = #"{"success":true,"message":"","data":{"items":[{"created_at":1782864000,"type":2,"token_name":"test-key","model_name":"test-model","prompt_tokens":100,"completion_tokens":50,"use_time":1000,"quota":250000}]}}"#
         default:
             body = #"{"success":false,"message":"unexpected path","data":{}}"#
         }

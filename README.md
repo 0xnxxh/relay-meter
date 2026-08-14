@@ -2,7 +2,7 @@
 
 Native macOS menu bar monitor for Claude/OpenAI relay dashboards.
 
-Relay Meter shows traffic, success rate, token/cache usage, latency, recent activity, top model, and top API key directly in the macOS menu bar. The interface supports English and Simplified Chinese.
+Relay Meter shows traffic, success rate, token/cache usage, spend, latency, recent activity, top model, and top API key directly in the macOS menu bar. The interface supports English and Simplified Chinese.
 
 ## English
 
@@ -34,10 +34,13 @@ Open `Settings` from the menu bar and set:
 - `newApiUserID`: required only for `newApi`, because new-api admin routes require the `New-Api-User` header.
 - `language`: `en` for English or `zh-Hans` for Simplified Chinese.
 - `refreshIntervalSeconds`: refresh interval; the minimum is 10 seconds.
-- `titleMetric`: menu bar title metric, such as `requests`, `tokens`, `successRate`, or `latency`.
+- `titleMetric`: menu bar title metric, such as `requests`, `tokens`, `cost`, `successRate`, or `latency`.
 - `timeRange`: `today`, `7d`, `30d`, or `all`.
+- `listItems`: selects the cards shown in the menu. Spend appears inside the token card.
 
 Saving in `Settings` applies the new config immediately. Keep `~/.config/relay-meter/config.json` private because it contains an access key.
+
+`Launch at Login` in Settings registers the main app with macOS Login Items. If macOS requires approval, Relay Meter opens the Login Items pane and reports that approval is still required.
 
 When multiple adapters are enabled, the menu bar title shows the aggregate total. The menu body has source tabs: `All` first, then one tab per adapter. Switching tabs changes the cards, rankings, and trend chart between the aggregate view and a single adapter. If one adapter fails, the others still render and the failed adapter appears as an error on the aggregate tab.
 
@@ -58,6 +61,8 @@ The current app was originally built around [ssfun/CLIProxyAPI-Pro](https://gith
 The Activity card shows the latest 13 calendar weeks with weeks as columns and Monday–Sunday as rows. The detail heatmap defaults to the current calendar year and can switch to a rolling year without another request; it also has source and Requests/Tokens controls. A successful aggregate response fills missing days with zero; request failures remain visibly unavailable, and a failed adapter makes the aggregate day partial rather than hiding the gap. Activity data is cached for five minutes.
 
 `cliproxyapiPro` exposes daily request and token aggregates directly. `sub2api` exposes successful request and token totals through its daily trend endpoint, so failed-request counts are not available in its heatmap. `newApi` requires `enable_data_export`; Relay Meter checks `/api/status` and reads `/api/data/` in monthly chunks. The other new-api cards still aggregate the newest 100 matching `/api/log/` rows.
+
+Spend appears inside the token card and follows the selected range without separate currency or range rows. CLIProxyAPI-Pro provides an estimated USD cost; sub2api provides actual deducted cost; new-api quota is converted using the server's `quota_per_unit`. The aggregate amount is shown only when every enabled adapter succeeds and supplies a cost, so a partial amount is never presented as the total.
 
 ### Use
 
@@ -107,10 +112,13 @@ xattr -cr "/Applications/Relay Meter.app"
 - `newApiUserID`：仅 `newApi` 需要，因为 new-api admin 路由要求 `New-Api-User` 请求头。
 - `language`：`en` 为英文，`zh-Hans` 为简体中文。
 - `refreshIntervalSeconds`：刷新间隔，最小 10 秒。
-- `titleMetric`：菜单栏标题指标，例如 `requests`、`tokens`、`successRate` 或 `latency`。
+- `titleMetric`：菜单栏标题指标，例如 `requests`、`tokens`、`cost`、`successRate` 或 `latency`。
 - `timeRange`：`today`、`7d`、`30d` 或 `all`。
+- `listItems`：选择菜单中显示的卡片；花费整合在 Token 卡片内。
 
 在 `设置` 中保存后，新配置会立即生效。请保护好 `~/.config/relay-meter/config.json`，里面包含访问密钥。
+
+设置中的“登录时启动”会把主应用注册到 macOS 登录项。如果系统仍要求授权，Relay Meter 会打开登录项设置页并明确提示尚未完成授权。
 
 启用多个 adapter 时，菜单栏标题显示聚合总量；菜单展开后有来源标签：第一个是 `总览`，后面每个 adapter 一个标签。切换标签会在聚合视图和单个 adapter 之间切换卡片、排行和趋势图。单个 adapter 失败不会阻止其他 adapter 展示，失败项会显示在总览标签下。
 
@@ -131,6 +139,8 @@ Relay Meter 已为这些项目提供独立 adapter：
 活跃度卡片展示最近 13 个日历周，以周为列、周一至周日为行。详情热力图默认显示当年 1 月 1 日至今天，也可切换到滚动一年，切换时无需再次请求；同时支持切换来源和“请求/Token”。聚合接口成功返回时，缺失日期按 0 填充；请求失败仍明确显示不可用，单个 adapter 失败时，聚合日期会标为“部分数据”。活跃度数据缓存 5 分钟。
 
 `cliproxyapiPro` 可直接提供按日请求数和 Token 聚合。`sub2api` 的日趋势只统计成功请求，因此其热力图无法提供失败请求数。`newApi` 需要开启 `enable_data_export`；Relay Meter 会先检查 `/api/status`，再按月读取 `/api/data/`。new-api 的其他卡片仍基于 `/api/log/` 最近 100 条匹配日志聚合。
+
+花费整合在 Token 卡片内并跟随所选时间范围，不再单独显示币种和范围行。CLIProxyAPI-Pro 提供预估美元费用；sub2api 提供实际扣除费用；new-api 则按服务端 `quota_per_unit` 换算 quota。只有所有已启用 adapter 都成功并能提供费用时，总览才显示聚合金额，避免把部分金额误作总额。
 
 ### 使用
 
