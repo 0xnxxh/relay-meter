@@ -6,8 +6,23 @@ enum UsageActivityMetric: String, CaseIterable {
 }
 
 final class ActivityMenuCardView: RoundedPanelView {
+    private static let metricDefaultsKey = "activity.menuMetric"
+
+    private static var preferredMetric: UsageActivityMetric {
+        get {
+            UserDefaults.standard.string(forKey: metricDefaultsKey)
+                .flatMap(UsageActivityMetric.init(rawValue:)) ?? .requests
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: metricDefaultsKey) }
+    }
+
     private let selectedLabel = menuLabel("--", size: 9, weight: .bold, color: RelayTheme.muted)
     private let onOpenDetails: () -> Void
+    private let heatmapContainer = NSView()
+    private var metricButtons: [NSButton] = []
+    private var dataset = UsageActivityDataset(bounds: UsageDateBounds(start: Date(), end: Date()), days: [], availability: .unavailable, unavailableReason: nil)
+    private var texts: TextBundle?
+    private var metric = ActivityMenuCardView.preferredMetric
 
     init(
         dataset: UsageActivityDataset,
@@ -16,6 +31,8 @@ final class ActivityMenuCardView: RoundedPanelView {
     ) {
         self.onOpenDetails = onOpenDetails
         super.init(accentColor: RelayTheme.line, fillAlpha: 0.94)
+        self.dataset = dataset
+        self.texts = texts
         build(dataset: dataset, texts: texts)
     }
 
@@ -46,6 +63,7 @@ final class ActivityMenuCardView: RoundedPanelView {
         header.spacing = 8
         header.addArrangedSubview(menuIconTitle(texts.activity, accent: RelayTheme.up, icon: .tokens))
         header.addArrangedSubview(NSView())
+        header.addArrangedSubview(metricToggle(texts: texts))
         let details = NSButton(title: texts.activityViewDetails, target: self, action: #selector(openDetails))
         details.translatesAutoresizingMaskIntoConstraints = false
         details.heightAnchor.constraint(equalToConstant: 26).isActive = true
@@ -55,14 +73,11 @@ final class ActivityMenuCardView: RoundedPanelView {
         header.addArrangedSubview(details)
         stack.addArrangedSubview(header)
 
-        let recent = dataset.calendarWeeks(13)
-        let heatmap = ActivityHeatmapView(dataset: recent, metric: .requests, layout: .compact) { [weak self] day in
-            self?.selectedLabel.stringValue = self?.summary(day, texts: texts) ?? "--"
-        }
-        heatmap.translatesAutoresizingMaskIntoConstraints = false
-        heatmap.widthAnchor.constraint(equalToConstant: 332).isActive = true
-        heatmap.heightAnchor.constraint(equalToConstant: 112).isActive = true
-        stack.addArrangedSubview(heatmap)
+        heatmapContainer.translatesAutoresizingMaskIntoConstraints = false
+        heatmapContainer.widthAnchor.constraint(equalToConstant: 332).isActive = true
+        heatmapContainer.heightAnchor.constraint(equalToConstant: 112).isActive = true
+        stack.addArrangedSubview(heatmapContainer)
+        rebuildHeatmap(texts: texts)
 
         let footer = NSStackView()
         footer.orientation = .horizontal
@@ -93,14 +108,74 @@ final class ActivityMenuCardView: RoundedPanelView {
     private func summary(_ day: UsageActivityDay?, texts: TextBundle) -> String {
         guard let day else { return "--" }
         let date = DateFormatter.localizedString(from: day.start, dateStyle: .short, timeStyle: .none)
+        let value = metric == .requests ? day.requests : day.tokens
+        let unit = metric == .requests ? texts.requests : texts.activityTokens
         switch day.state {
         case .unknown:
             return "\(date)  \(texts.activityUnknown)"
         case .partial:
-            return "\(date)  \(MenuValueFormatter.compact(day.requests)) · \(texts.activityPartial)"
+            return "\(date)  \(MenuValueFormatter.compact(value)) · \(texts.activityPartial)"
         case .observed, .knownZero:
-            return "\(date)  \(MenuValueFormatter.compact(day.requests)) \(texts.requests.uppercased())"
+            return "\(date)  \(MenuValueFormatter.compact(value)) \(unit.uppercased())"
         }
+    }
+
+    private func metricToggle(texts: TextBundle) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 0
+        metricButtons = UsageActivityMetric.allCases.enumerated().map { index, item in
+            let title = item == .requests ? texts.activityRequests : texts.activityTokens
+            let button = NSButton(title: title, target: self, action: #selector(metricChanged(_:)))
+            button.tag = index
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.widthAnchor.constraint(equalToConstant: 58).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 26).isActive = true
+            button.setAccessibilityLabel(title)
+            RelayTheme.styleButton(button, tint: RelayTheme.cyan, isSelected: item == metric, fontSize: 9)
+            row.addArrangedSubview(button)
+            return button
+        }
+        return row
+    }
+
+    private func rebuildHeatmap(texts: TextBundle) {
+        heatmapContainer.subviews.forEach { $0.removeFromSuperview() }
+        let heatmap = ActivityHeatmapView(
+            dataset: dataset.calendarWeeks(13),
+            metric: metric,
+            layout: .compact
+        ) { [weak self] day in
+            guard let self else { return }
+            self.selectedLabel.stringValue = self.summary(day, texts: texts)
+        }
+        heatmap.translatesAutoresizingMaskIntoConstraints = false
+        heatmapContainer.addSubview(heatmap)
+        NSLayoutConstraint.activate([
+            heatmap.leadingAnchor.constraint(equalTo: heatmapContainer.leadingAnchor),
+            heatmap.trailingAnchor.constraint(equalTo: heatmapContainer.trailingAnchor),
+            heatmap.topAnchor.constraint(equalTo: heatmapContainer.topAnchor),
+            heatmap.bottomAnchor.constraint(equalTo: heatmapContainer.bottomAnchor)
+        ])
+    }
+
+    @objc private func metricChanged(_ sender: NSButton) {
+        guard let texts, UsageActivityMetric.allCases.indices.contains(sender.tag) else { return }
+        let selected = UsageActivityMetric.allCases[sender.tag]
+        guard selected != metric else { return }
+        metric = selected
+        Self.preferredMetric = selected
+        for (index, button) in metricButtons.enumerated() {
+            RelayTheme.styleButton(
+                button,
+                tint: RelayTheme.cyan,
+                isSelected: UsageActivityMetric.allCases[index] == selected,
+                fontSize: 9
+            )
+        }
+        rebuildHeatmap(texts: texts)
+        selectedLabel.stringValue = availabilitySummary(dataset, texts: texts)
     }
 
     @objc private func openDetails() {
