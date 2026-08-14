@@ -209,9 +209,13 @@ enum MenuValueFormatter {
         }
 
         let whole = tokens / unit.divisor
-        let fraction = (tokens % unit.divisor) * 1_000 / unit.divisor
+        let integerDigits = whole == 0 ? 0 : String(whole).count
+        let decimalPlaces = max(0, 4 - integerDigits)
+        guard decimalPlaces > 0 else { return "\(whole)\(unit.suffix)" }
+        let scale = (0..<decimalPlaces).reduce(1) { value, _ in value * 10 }
+        let fraction = (tokens % unit.divisor) * scale / unit.divisor
         guard fraction > 0 else { return "\(whole)\(unit.suffix)" }
-        let digits = String(format: "%03d", fraction).replacingOccurrences(
+        let digits = String(format: "%0*d", decimalPlaces, fraction).replacingOccurrences(
             of: "0+$",
             with: "",
             options: .regularExpression

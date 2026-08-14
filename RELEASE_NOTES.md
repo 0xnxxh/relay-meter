@@ -1,13 +1,11 @@
-# Relay Meter v1.0.10
+# Relay Meter v1.0.11
 
 ## Highlights
 
-- Replaces the Top API Key ranking with an interactive Top Model token-share pie chart.
-- Shows the model name and token share when hovering a pie slice or navigating it with the keyboard.
-- Uses consistent K, M, and B units for token counts throughout the app.
+- Enlarges the Top Model token-share pie chart while preserving the ranking card's compact height and even row spacing.
+- Formats token counts with up to four significant digits within K, M, and B units.
 
 ## Fixes
 
-- Shows token counts instead of success rate in Top Model rows.
-- Hides the adapter name from ranking labels when only one adapter is enabled, while preserving source labels for multi-adapter views.
-- Removes the Top API Key option from defaults, settings, and example configuration.
+- Prevents the pie chart from adding excess whitespace below the model list.
+- Truncates token values consistently, such as `123.4M`, `12.34M`, and `1.234M`, without rounding into the next unit.

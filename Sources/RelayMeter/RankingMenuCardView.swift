@@ -1,7 +1,13 @@
-// Hallmark · interactive ranking card · RelayTheme pixel UI · pre-emit: P5 H5 E5 S5 R5 V4 · default/hover/keyboard render pass · contrast pass
+// Hallmark · interactive ranking card · RelayTheme pixel UI · P5 H5 E5 S5 R5 V4 · 108pt default/hover/keyboard render pass · contrast pass
 import AppKit
 
 final class RankingMenuCardView: RoundedPanelView {
+    private enum Layout {
+        static let contentWidth: CGFloat = 332
+        static let rankingWidth: CGFloat = 212
+        static let chartDiameter: CGFloat = 108
+    }
+
     private static let rankColors = [RelayTheme.accent, RelayTheme.cyan, RelayTheme.up]
     private let chartDetail = menuLabel("", size: 9, weight: .bold, color: RelayTheme.muted)
 
@@ -34,7 +40,7 @@ final class RankingMenuCardView: RoundedPanelView {
         header.alignment = .centerY
         header.spacing = 8
         header.translatesAutoresizingMaskIntoConstraints = false
-        header.widthAnchor.constraint(equalToConstant: 332).isActive = true
+        header.widthAnchor.constraint(equalToConstant: Layout.contentWidth).isActive = true
         header.addArrangedSubview(menuIconTitle(texts.topModel, accent: RelayTheme.cyan, icon: .ranking))
         header.addArrangedSubview(NSView())
         chartDetail.identifier = NSUserInterfaceItemIdentifier("top-model-token-share-detail")
@@ -49,11 +55,11 @@ final class RankingMenuCardView: RoundedPanelView {
         content.alignment = .top
         content.spacing = 12
         content.translatesAutoresizingMaskIntoConstraints = false
-        content.widthAnchor.constraint(equalToConstant: 332).isActive = true
+        content.widthAnchor.constraint(equalToConstant: Layout.contentWidth).isActive = true
 
         let ranking = rankingColumn(title: texts.topModel, rows: rows)
         ranking.translatesAutoresizingMaskIntoConstraints = false
-        ranking.widthAnchor.constraint(equalToConstant: 232).isActive = true
+        ranking.widthAnchor.constraint(equalToConstant: Layout.rankingWidth).isActive = true
         content.addArrangedSubview(ranking)
         content.addArrangedSubview(chartColumn(rows: rows, texts: texts))
         stack.addArrangedSubview(content)
@@ -63,6 +69,7 @@ final class RankingMenuCardView: RoundedPanelView {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
+        stack.distribution = .fill
         stack.spacing = 3
         stack.addArrangedSubview(menuLabel(title.uppercased(), size: 10, weight: .bold, color: RelayTheme.muted))
 
@@ -73,9 +80,12 @@ final class RankingMenuCardView: RoundedPanelView {
 
         for (index, row) in rows.enumerated() {
             let item = NSStackView()
+            item.identifier = NSUserInterfaceItemIdentifier("top-model-row-\(index + 1)")
             item.orientation = .vertical
             item.alignment = .leading
             item.spacing = 1
+            item.setContentHuggingPriority(.required, for: .vertical)
+            item.setContentCompressionResistancePriority(.required, for: .vertical)
 
             let nameRow = NSStackView()
             nameRow.orientation = .horizontal
@@ -104,7 +114,7 @@ final class RankingMenuCardView: RoundedPanelView {
         stack.alignment = .centerX
         stack.spacing = 5
         stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.widthAnchor.constraint(equalToConstant: 88).isActive = true
+        stack.widthAnchor.constraint(equalToConstant: Layout.chartDiameter).isActive = true
         let chart = ModelTokenSharePieChartView(
             rows: rows,
             colors: Self.rankColors,
@@ -114,8 +124,8 @@ final class RankingMenuCardView: RoundedPanelView {
                 ?? "\(texts.tokens.uppercased()) %"
         }
         chart.translatesAutoresizingMaskIntoConstraints = false
-        chart.widthAnchor.constraint(equalToConstant: 82).isActive = true
-        chart.heightAnchor.constraint(equalToConstant: 82).isActive = true
+        chart.widthAnchor.constraint(equalToConstant: Layout.chartDiameter).isActive = true
+        chart.heightAnchor.constraint(equalToConstant: Layout.chartDiameter).isActive = true
         stack.addArrangedSubview(chart)
         return stack
     }

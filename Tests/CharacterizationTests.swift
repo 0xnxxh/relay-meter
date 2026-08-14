@@ -46,10 +46,14 @@ struct CharacterizationTests {
     private static func testTokenCountFormatter() {
         expect(MenuValueFormatter.tokenCount(0) == "0K", "zero tokens must use K")
         expect(MenuValueFormatter.tokenCount(600) == "0.6K", "sub-million tokens must use K")
-        expect(MenuValueFormatter.tokenCount(999_999) == "999.999K", "K values must truncate to three decimals")
+        expect(MenuValueFormatter.tokenCount(505_016) == "505K", "token values must drop insignificant trailing zeroes")
+        expect(MenuValueFormatter.tokenCount(505_221) == "505.2K", "K values must keep at most four significant digits")
+        expect(MenuValueFormatter.tokenCount(999_999) == "999.9K", "K values must truncate to four significant digits")
         expect(MenuValueFormatter.tokenCount(1_000_000) == "1M", "one million tokens must switch to M")
-        expect(MenuValueFormatter.tokenCount(1_234_500) == "1.234M", "M values must truncate to three decimals")
-        expect(MenuValueFormatter.tokenCount(999_999_999) == "999.999M", "M values must not round into B")
+        expect(MenuValueFormatter.tokenCount(1_234_567) == "1.234M", "single-digit M values must keep three decimals")
+        expect(MenuValueFormatter.tokenCount(12_345_678) == "12.34M", "double-digit M values must keep two decimals")
+        expect(MenuValueFormatter.tokenCount(123_456_789) == "123.4M", "triple-digit M values must keep one decimal")
+        expect(MenuValueFormatter.tokenCount(999_999_999) == "999.9M", "M values must not round into B")
         expect(MenuValueFormatter.tokenCount(1_000_000_000) == "1B", "one billion tokens must switch to B")
         expect(MenuValueFormatter.tokenCount(1_234_500_000) == "1.234B", "B values must truncate to three decimals")
     }
@@ -396,7 +400,7 @@ struct CharacterizationTests {
         expect(copy.contains("TOKENS"), "tokens card title missing")
         expect(copy.contains("1.234B"), "tokens card total must use B with truncated precision")
         expect(copy.contains("1B / 234.5M"), "input and output tokens must use the shared token formatter")
-        expect(copy.contains("12.345M / 1%"), "cache tokens must use the shared token formatter")
+        expect(copy.contains("12.34M / 1%"), "cache tokens must use the shared token formatter")
         expect(copy.contains("$12.35"), "tokens card spend value missing")
         expect(copy.contains("ACTUAL SPEND"), "tokens card spend type missing")
         expect(!copy.contains("CURRENCY"), "tokens card must not show a currency row")
@@ -446,6 +450,26 @@ struct CharacterizationTests {
         }) as? NSTextField else {
             fatalError("Top model token-share hover UI missing")
         }
+        expect(chart.bounds.width == 108 && chart.bounds.height == 108, "Top model pie chart must fit the model list without adding card whitespace")
+        guard let firstRow = findView(in: view, matching: {
+            $0.identifier?.rawValue == "top-model-row-1"
+        }), let secondRow = findView(in: view, matching: {
+            $0.identifier?.rawValue == "top-model-row-2"
+        }), let thirdRow = findView(in: view, matching: {
+            $0.identifier?.rawValue == "top-model-row-3"
+        }) else {
+            fatalError("Top model ranking rows missing")
+        }
+        let firstGap = firstRow.frame.minY - secondRow.frame.maxY
+        let secondGap = secondRow.frame.minY - thirdRow.frame.maxY
+        expect(abs(firstGap - secondGap) <= 1, "Top model rows must keep consistent vertical spacing beside the larger pie chart")
+        guard let rankingColumn = firstRow.superview else {
+            fatalError("Top model ranking column missing")
+        }
+        expect(
+            chart.bounds.height <= rankingColumn.fittingSize.height,
+            "Top model pie chart must not increase the ranking card content height"
+        )
         if let previewPath = ProcessInfo.processInfo.environment["RELAY_METER_RANKING_CARD_PREVIEW_PATH"] {
             render(view, to: previewPath)
         }
