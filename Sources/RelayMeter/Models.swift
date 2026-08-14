@@ -333,6 +333,12 @@ struct UsageRankingRow {
         guard requests > 0 else { return 1 }
         return Double(requests - failures) / Double(requests)
     }
+
+    mutating func add(requests: Int, failures: Int, tokens: Int) {
+        self.requests += requests
+        self.failures += failures
+        self.tokens += tokens
+    }
 }
 
 struct UsageTrendPoint {
@@ -341,6 +347,12 @@ struct UsageTrendPoint {
     var requests: Int
     var failures: Int
     var tokens: Int
+
+    mutating func add(requests: Int, failures: Int, tokens: Int) {
+        self.requests += requests
+        self.failures += failures
+        self.tokens += tokens
+    }
 }
 
 struct NewAPIActivityRow: Decodable {

@@ -12,6 +12,10 @@ final class UsageClient {
     }
 
     func fetchSnapshot() async throws -> UsageSnapshot {
+        try await Self.fetchSnapshot(config: config, session: session, logger: logger)
+    }
+
+    private static func fetchSnapshot(config: AppConfig, session: URLSession, logger: AppLogger) async throws -> UsageSnapshot {
         switch config.resolvedPlatform {
         case .cliproxyapiPro:
             return try await CLIProxyAPIProUsageAdapter(config: config, session: session, logger: logger).fetchSnapshot()
@@ -35,7 +39,7 @@ final class UsageClient {
                 group.addTask { [config, session, logger] in
                     let scopedConfig = config.scoped(to: adapter)
                     do {
-                        var snapshot = try await UsageClient(config: scopedConfig, session: session, logger: logger).fetchSnapshot()
+                        var snapshot = try await Self.fetchSnapshot(config: scopedConfig, session: session, logger: logger)
                         snapshot.sourceID = adapter.resolvedID
                         snapshot.sourceName = adapter.displayName
                         return .success(snapshot)
@@ -379,20 +383,32 @@ private struct NewAPIUsageAdapter {
         let chunks = monthlyActivityBounds(bounds)
         var points: [UsageTrendPoint] = []
         var successfulChunks: [UsageDateBounds] = []
-        for chunk in chunks {
-            do {
-                let response: NewAPIEnvelope<[NewAPIActivityRow]> = try await get(
-                    "/api/data/?start_timestamp=\(seconds(chunk.start))&end_timestamp=\(seconds(chunk.end))"
-                )
-                guard response.success else {
-                    logger.error("new-api activity aggregate rejected")
-                    continue
+        // Monthly chunks are independent reads; serial fetching cost one round trip per month.
+        await withTaskGroup(of: (UsageDateBounds, [NewAPIActivityRow])?.self) { group in
+            for chunk in chunks {
+                group.addTask {
+                    do {
+                        let response: NewAPIEnvelope<[NewAPIActivityRow]> = try await get(
+                            "/api/data/?start_timestamp=\(seconds(chunk.start))&end_timestamp=\(seconds(chunk.end))"
+                        )
+                        guard response.success else {
+                            logger.error("new-api activity aggregate rejected")
+                            return nil
+                        }
+                        return (chunk, response.data)
+                    } catch {
+                        logger.error("new-api activity aggregate failed \(error.localizedDescription)")
+                        return nil
+                    }
                 }
-                points.append(contentsOf: activityPoints(from: response.data))
-                successfulChunks.append(chunk)
-            } catch {
-                logger.error("new-api activity aggregate failed \(error.localizedDescription)")
             }
+            var rows: [NewAPIActivityRow] = []
+            for await result in group {
+                guard let result else { continue }
+                successfulChunks.append(result.0)
+                rows.append(contentsOf: result.1)
+            }
+            points = activityPoints(from: rows)
         }
         let dataset = UsageActivitySeries.dataset(
             points: points,
@@ -426,19 +442,13 @@ private struct NewAPIUsageAdapter {
         var rowsByBucket: [Int: UsageTrendPoint] = [:]
         for log in logs {
             let bucket = bucketStartMs(timestampSeconds: log.createdAt, range: range)
-            let previous = rowsByBucket[bucket] ?? UsageTrendPoint(
-                bucketStartMs: bucket,
-                label: trendLabel(bucket, range: range),
-                requests: 0,
-                failures: 0,
-                tokens: 0
-            )
-            rowsByBucket[bucket] = UsageTrendPoint(
-                bucketStartMs: bucket,
-                label: previous.label,
-                requests: previous.requests + 1,
-                failures: previous.failures + (log.type == 5 ? 1 : 0),
-                tokens: previous.tokens + log.promptTokens + log.completionTokens
+            rowsByBucket[
+                bucket,
+                default: UsageTrendPoint(bucketStartMs: bucket, label: trendLabel(bucket, range: range), requests: 0, failures: 0, tokens: 0)
+            ].add(
+                requests: 1,
+                failures: log.type == 5 ? 1 : 0,
+                tokens: log.promptTokens + log.completionTokens
             )
         }
         return rowsByBucket.values.sorted { $0.bucketStartMs < $1.bucketStartMs }.suffix(30).map { $0 }
@@ -446,23 +456,14 @@ private struct NewAPIUsageAdapter {
 
     private func activityPoints(from rows: [NewAPIActivityRow]) -> [UsageTrendPoint] {
         var rowsByBucket: [Int: UsageTrendPoint] = [:]
+        let calendar = Calendar.current
         for row in rows {
             let date = Date(timeIntervalSince1970: TimeInterval(row.createdAt))
-            let bucket = milliseconds(Calendar.current.startOfDay(for: date))
-            let previous = rowsByBucket[bucket] ?? UsageTrendPoint(
-                bucketStartMs: bucket,
-                label: activityLabel(bucket),
-                requests: 0,
-                failures: 0,
-                tokens: 0
-            )
-            rowsByBucket[bucket] = UsageTrendPoint(
-                bucketStartMs: bucket,
-                label: previous.label,
-                requests: previous.requests + row.count,
-                failures: previous.failures,
-                tokens: previous.tokens + row.tokenUsed
-            )
+            let bucket = milliseconds(calendar.startOfDay(for: date))
+            rowsByBucket[
+                bucket,
+                default: UsageTrendPoint(bucketStartMs: bucket, label: activityLabel(bucket), requests: 0, failures: 0, tokens: 0)
+            ].add(requests: row.count, failures: 0, tokens: row.tokenUsed)
         }
         return rowsByBucket.values.sorted { $0.bucketStartMs < $1.bucketStartMs }
     }
@@ -471,12 +472,10 @@ private struct NewAPIUsageAdapter {
         var rows: [String: UsageRankingRow] = [:]
         for log in logs {
             let label = key(log).ifEmpty("-")
-            let previous = rows[label] ?? UsageRankingRow(label: label, requests: 0, failures: 0, tokens: 0)
-            rows[label] = UsageRankingRow(
-                label: label,
-                requests: previous.requests + 1,
-                failures: previous.failures + (log.type == 5 ? 1 : 0),
-                tokens: previous.tokens + log.promptTokens + log.completionTokens
+            rows[label, default: UsageRankingRow(label: label, requests: 0, failures: 0, tokens: 0)].add(
+                requests: 1,
+                failures: log.type == 5 ? 1 : 0,
+                tokens: log.promptTokens + log.completionTokens
             )
         }
         return Array(rows.values).sortedForRanking().prefix(3).map { $0 }
@@ -601,14 +600,12 @@ private func aggregateLimit(_ range: UsageTimeRange) -> Int {
 private func dateRangeQuery(_ range: UsageTimeRange) -> String {
     let start = Date(timeIntervalSince1970: TimeInterval(rangeStartMs(range)) / 1_000)
     let end = Date()
-    let formatter = DateFormatter()
-    formatter.dateFormat = "yyyy-MM-dd"
+    let formatter = cachedFormatter("yyyy-MM-dd")
     return "start_date=\(formatter.string(from: start))&end_date=\(formatter.string(from: end))"
 }
 
 private func dateRangeQuery(_ bounds: UsageDateBounds, includeTimeZone: Bool = false) -> String {
-    let formatter = DateFormatter()
-    formatter.dateFormat = "yyyy-MM-dd"
+    let formatter = cachedFormatter("yyyy-MM-dd")
     var query = "start_date=\(formatter.string(from: bounds.start))&end_date=\(formatter.string(from: bounds.end))"
     if includeTimeZone,
        let timeZone = TimeZone.current.identifier.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
@@ -674,17 +671,27 @@ private func activityPoints(_ buckets: [UsageAggregateBucket]) -> [UsageTrendPoi
 
 private func activityLabel(_ bucketStartMs: Int) -> String {
     let date = Date(timeIntervalSince1970: TimeInterval(bucketStartMs) / 1_000)
-    let formatter = DateFormatter()
-    formatter.dateFormat = "yyyy-MM-dd"
-    return formatter.string(from: date)
+    return cachedFormatter("yyyy-MM-dd").string(from: date)
 }
 
 private func trendLabel(_ bucketStartMs: Int, range: UsageTimeRange) -> String {
     let date = Date(timeIntervalSince1970: TimeInterval(bucketStartMs) / 1_000)
-    let formatter = DateFormatter()
-    formatter.dateFormat = range == .today ? "HH:00" : "M/d"
-    return formatter.string(from: date)
+    return cachedFormatter(range == .today ? "HH:00" : "M/d").string(from: date)
 }
+
+/// DateFormatter construction dominates label building when it runs once per bucket.
+private func cachedFormatter(_ format: String) -> DateFormatter {
+    formatterCacheLock.lock()
+    defer { formatterCacheLock.unlock() }
+    if let formatter = formatterCache[format] { return formatter }
+    let formatter = DateFormatter()
+    formatter.dateFormat = format
+    formatterCache[format] = formatter
+    return formatter
+}
+
+nonisolated(unsafe) private var formatterCache: [String: DateFormatter] = [:]
+private let formatterCacheLock = NSLock()
 
 private func bucketStartMs(timestampSeconds: Int, range: UsageTimeRange) -> Int {
     let date = Date(timeIntervalSince1970: TimeInterval(timestampSeconds))
@@ -702,14 +709,11 @@ private func bucketStartMs(timestampSeconds: Int, range: UsageTimeRange) -> Int 
 private func rankBuckets(_ buckets: [UsageAggregateBucket], label: (UsageAggregateBucket) -> String?) -> [UsageRankingRow] {
     var rowsByLabel: [String: UsageRankingRow] = [:]
     for bucket in buckets {
-        let value = label(bucket) ?? ""
-        let rowLabel = value.ifEmpty("-")
-        let previous = rowsByLabel[rowLabel] ?? UsageRankingRow(label: rowLabel, requests: 0, failures: 0, tokens: 0)
-        rowsByLabel[rowLabel] = UsageRankingRow(
-            label: rowLabel,
-            requests: previous.requests + bucket.totalRequests,
-            failures: previous.failures + bucket.failureCount,
-            tokens: previous.tokens + bucket.totalTokens
+        let rowLabel = (label(bucket) ?? "").ifEmpty("-")
+        rowsByLabel[rowLabel, default: UsageRankingRow(label: rowLabel, requests: 0, failures: 0, tokens: 0)].add(
+            requests: bucket.totalRequests,
+            failures: bucket.failureCount,
+            tokens: bucket.totalTokens
         )
     }
     return Array(rowsByLabel.values).sortedForRanking().prefix(3).map { $0 }
@@ -733,20 +737,10 @@ private func aggregateSnapshot(
         refreshedAt = min(refreshedAt, snapshot.refreshedAt)
 
         for point in snapshot.trendPoints {
-            let previous = trendByBucket[point.bucketStartMs] ?? UsageTrendPoint(
-                bucketStartMs: point.bucketStartMs,
-                label: point.label,
-                requests: 0,
-                failures: 0,
-                tokens: 0
-            )
-            trendByBucket[point.bucketStartMs] = UsageTrendPoint(
-                bucketStartMs: point.bucketStartMs,
-                label: previous.label,
-                requests: previous.requests + point.requests,
-                failures: previous.failures + point.failures,
-                tokens: previous.tokens + point.tokens
-            )
+            trendByBucket[
+                point.bucketStartMs,
+                default: UsageTrendPoint(bucketStartMs: point.bucketStartMs, label: point.label, requests: 0, failures: 0, tokens: 0)
+            ].add(requests: point.requests, failures: point.failures, tokens: point.tokens)
         }
 
         mergeRankingRows(snapshot.topModels, prefix: snapshot.sourceName, into: &modelRows)
@@ -774,12 +768,10 @@ private func aggregateSnapshot(
 private func mergeRankingRows(_ rows: [UsageRankingRow], prefix: String, into target: inout [String: UsageRankingRow]) {
     for row in rows {
         let label = "\(prefix) · \(row.label)"
-        let previous = target[label] ?? UsageRankingRow(label: label, requests: 0, failures: 0, tokens: 0)
-        target[label] = UsageRankingRow(
-            label: label,
-            requests: previous.requests + row.requests,
-            failures: previous.failures + row.failures,
-            tokens: previous.tokens + row.tokens
+        target[label, default: UsageRankingRow(label: label, requests: 0, failures: 0, tokens: 0)].add(
+            requests: row.requests,
+            failures: row.failures,
+            tokens: row.tokens
         )
     }
 }
@@ -796,9 +788,7 @@ private func maskHash(_ value: String) -> String {
 private func parseSub2APIDateMs(_ value: String) -> Int {
     let formats = ["yyyy-MM-dd HH:00", "yyyy-MM-dd HH", "yyyy-MM-dd"]
     for format in formats {
-        let formatter = DateFormatter()
-        formatter.dateFormat = format
-        if let date = formatter.date(from: value) {
+        if let date = cachedFormatter(format).date(from: value) {
             return Int(date.timeIntervalSince1970 * 1_000)
         }
     }

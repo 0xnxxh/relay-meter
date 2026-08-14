@@ -4,20 +4,18 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TEST_BINARY="$ROOT_DIR/.build/characterization-tests"
 
+# Compile every app source except main.swift, whose top-level code and Sparkle
+# dependency cannot link into the test harness. Globbing keeps new files covered.
+SOURCES=()
+while IFS= read -r file; do
+  SOURCES+=("$file")
+done < <(find "$ROOT_DIR/Sources/RelayMeter" -name '*.swift' ! -name 'main.swift' | sort)
+
 mkdir -p "$ROOT_DIR/.build"
 swiftc \
   -parse-as-library \
   -framework AppKit \
-  "$ROOT_DIR/Sources/RelayMeter/Models.swift" \
-  "$ROOT_DIR/Sources/RelayMeter/UsageActivity.swift" \
-  "$ROOT_DIR/Sources/RelayMeter/AppLogger.swift" \
-  "$ROOT_DIR/Sources/RelayMeter/UsageClient.swift" \
-  "$ROOT_DIR/Sources/RelayMeter/Localization.swift" \
-  "$ROOT_DIR/Sources/RelayMeter/RelayTheme.swift" \
-  "$ROOT_DIR/Sources/RelayMeter/MenuCardComponents.swift" \
-  "$ROOT_DIR/Sources/RelayMeter/ActivityMenuCardView.swift" \
-  "$ROOT_DIR/Sources/RelayMeter/ActivityWindow.swift" \
-  "$ROOT_DIR/Sources/RelayMeter/SettingsWindow.swift" \
+  "${SOURCES[@]}" \
   "$ROOT_DIR/Tests/CharacterizationTests.swift" \
   -o "$TEST_BINARY"
 

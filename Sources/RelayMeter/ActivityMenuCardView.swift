@@ -225,6 +225,12 @@ final class ActivityHeatmapView: NSView {
     static let compactRowCount = 7
     static let compactGap: CGFloat = 4
 
+    private static let monthFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM"
+        return formatter
+    }()
+
     static func compactGridPosition(
         for date: Date,
         reference: Date,
@@ -259,6 +265,8 @@ final class ActivityHeatmapView: NSView {
     private let heatmapLayout: Layout
     private let onSelect: (UsageActivityDay?) -> Void
     private var cells: [Cell] = []
+    private var cellsBounds: NSRect = .zero
+    private var sortedDistribution: [Int] = []
     private var selectedIndex: Int?
     private var trackingArea: NSTrackingArea?
 
@@ -286,15 +294,24 @@ final class ActivityHeatmapView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        cells = makeCells()
-        let distribution = cells.compactMap { cell -> Int? in
-            guard cell.day.state == .observed || cell.day.state == .partial else { return nil }
-            return value(for: cell.day)
-        }
+        updateCellsIfNeeded()
         for (index, cell) in cells.enumerated() {
-            draw(cell: cell, distribution: distribution, selected: index == selectedIndex)
+            draw(cell: cell, selected: index == selectedIndex)
         }
         drawAxes()
+    }
+
+    /// Cell geometry and the value distribution only depend on bounds and dataset, not on selection.
+    private func updateCellsIfNeeded() {
+        guard cells.isEmpty || cellsBounds != bounds else { return }
+        cells = makeCells()
+        cellsBounds = bounds
+        sortedDistribution = UsageActivitySeries.sortedDistribution(
+            cells.compactMap { cell in
+                guard cell.day.state == .observed || cell.day.state == .partial else { return nil }
+                return value(for: cell.day)
+            }
+        )
     }
 
     override func updateTrackingAreas() {
@@ -320,12 +337,14 @@ final class ActivityHeatmapView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
+        guard selectedIndex != nil else { return }
         selectedIndex = nil
         onSelect(dataset.days.last)
         needsDisplay = true
     }
 
     override func keyDown(with event: NSEvent) {
+        updateCellsIfNeeded()
         let delta: Int
         switch (heatmapLayout, event.keyCode) {
         case (.compact, 123): delta = -7
@@ -347,12 +366,15 @@ final class ActivityHeatmapView: NSView {
     }
 
     private func select(at point: NSPoint) {
-        selectedIndex = cells.firstIndex { $0.rect.insetBy(dx: -1, dy: -1).contains(point) }
-        onSelect(selectedIndex.map { cells[$0].day })
+        updateCellsIfNeeded()
+        let index = cells.firstIndex { $0.rect.insetBy(dx: -1, dy: -1).contains(point) }
+        guard index != selectedIndex else { return }
+        selectedIndex = index
+        onSelect(index.map { cells[$0].day })
         needsDisplay = true
     }
 
-    private func draw(cell: Cell, distribution: [Int], selected: Bool) {
+    private func draw(cell: Cell, selected: Bool) {
         let path = NSBezierPath(rect: cell.rect)
         switch cell.day.state {
         case .unknown:
@@ -363,7 +385,7 @@ final class ActivityHeatmapView: NSView {
             RelayTheme.activityLevels[0].setFill()
             path.fill()
         case .observed, .partial:
-            let level = UsageActivitySeries.intensity(value: value(for: cell.day), distribution: distribution)
+            let level = UsageActivitySeries.intensity(value: value(for: cell.day), sortedDistribution: sortedDistribution)
             RelayTheme.activityLevels[level].setFill()
             path.fill()
             if cell.day.state == .partial {
@@ -461,8 +483,7 @@ final class ActivityHeatmapView: NSView {
         }
         var monthLabels: [(text: String, point: NSPoint, width: CGFloat)] = []
         var lastMonth = DateComponents()
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM"
+        let formatter = Self.monthFormatter
         for cell in cells {
             let month = Calendar.current.dateComponents([.year, .month], from: cell.day.start)
             if month != lastMonth {

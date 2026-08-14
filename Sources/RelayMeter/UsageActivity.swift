@@ -262,9 +262,16 @@ enum UsageActivitySeries {
     }
 
     static func intensity(value: Int, distribution: [Int]) -> Int {
-        guard value > 0 else { return 0 }
-        let values = distribution.filter { $0 > 0 }.sorted()
-        guard !values.isEmpty else { return 0 }
+        intensity(value: value, sortedDistribution: sortedDistribution(distribution))
+    }
+
+    /// Positive values in ascending order, reusable across every cell of one heatmap pass.
+    static func sortedDistribution(_ distribution: [Int]) -> [Int] {
+        distribution.filter { $0 > 0 }.sorted()
+    }
+
+    static func intensity(value: Int, sortedDistribution values: [Int]) -> Int {
+        guard value > 0, !values.isEmpty else { return 0 }
         let rank = values.partitioningIndex { $0 > value }
         return min(4, max(1, Int(ceil(Double(rank) / Double(values.count) * 4))))
     }

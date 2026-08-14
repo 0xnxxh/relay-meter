@@ -92,6 +92,12 @@ PLIST
 
 compile_release_binary() {
   mkdir -p "$RELEASE_DIR"
+  # Glob the sources so new files are compiled without editing this script.
+  local sources=()
+  while IFS= read -r file; do
+    sources+=("$file")
+  done < <(find "$ROOT_DIR/Sources/RelayMeter" -name '*.swift' | sort)
+
   swiftc \
     -O \
     -framework AppKit \
@@ -99,22 +105,7 @@ compile_release_binary() {
     -framework Sparkle \
     -Xlinker -rpath \
     -Xlinker "@executable_path/../Frameworks" \
-    "$ROOT_DIR/Sources/RelayMeter/AppLogger.swift" \
-    "$ROOT_DIR/Sources/RelayMeter/Models.swift" \
-    "$ROOT_DIR/Sources/RelayMeter/UsageActivity.swift" \
-    "$ROOT_DIR/Sources/RelayMeter/Localization.swift" \
-    "$ROOT_DIR/Sources/RelayMeter/ConfigStore.swift" \
-    "$ROOT_DIR/Sources/RelayMeter/DebugSummary.swift" \
-    "$ROOT_DIR/Sources/RelayMeter/UsageClient.swift" \
-    "$ROOT_DIR/Sources/RelayMeter/RelayTheme.swift" \
-    "$ROOT_DIR/Sources/RelayMeter/MenuCardComponents.swift" \
-    "$ROOT_DIR/Sources/RelayMeter/RankingMenuCardView.swift" \
-    "$ROOT_DIR/Sources/RelayMeter/TrendMenuCardView.swift" \
-    "$ROOT_DIR/Sources/RelayMeter/ActivityMenuCardView.swift" \
-    "$ROOT_DIR/Sources/RelayMeter/ActivityWindow.swift" \
-    "$ROOT_DIR/Sources/RelayMeter/SnapshotMenuView.swift" \
-    "$ROOT_DIR/Sources/RelayMeter/SettingsWindow.swift" \
-    "$ROOT_DIR/Sources/RelayMeter/main.swift" \
+    "${sources[@]}" \
     -o "$RELEASE_BINARY"
   echo "$RELEASE_BINARY"
 }

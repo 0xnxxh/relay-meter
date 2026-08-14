@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/version.sh"
 
+"$ROOT_DIR/scripts/run_characterization_tests.sh"
+
 APP_BUNDLE="$("$ROOT_DIR/scripts/build_and_run.sh" build)"
 DMG_PATH="$("$ROOT_DIR/scripts/package_dmg.sh")"
 APPCAST_PATH="$("$ROOT_DIR/scripts/generate_appcast.sh")"

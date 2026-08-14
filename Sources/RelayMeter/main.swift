@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Sparkle
 
+@MainActor
 final class MenuBarApp: NSObject, NSApplicationDelegate {
     private static let outsideCloseStatusToggleSuppressionSeconds: TimeInterval = 1.5
 
@@ -32,6 +33,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private var configReloadWorkItem: DispatchWorkItem?
     private var isSavingConfig = false
     private var refreshGeneration = 0
+    private var needsSnapshotRender = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -69,7 +71,6 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         statusItem.menu = nil
         configureMainPanelIfNeeded()
         renderSnapshotMenuView()
-        logger.info("menu configured language=\((config?.resolvedLanguage ?? .english).rawValue) titleMetric=\((config?.resolvedTitleMetric ?? .requests).rawValue) hasSnapshot=\(lastSnapshot != nil)")
         if let lastSnapshot {
             showSnapshot(lastSnapshot)
         }
@@ -194,7 +195,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private func scheduleRefresh(interval: TimeInterval) {
         refreshTimer?.invalidate()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            self?.refreshNow()
+            MainActor.assumeIsolated { self?.refreshNow() }
         }
         logger.info("refresh scheduled interval=\(interval)")
     }
@@ -213,26 +214,22 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         }
         refreshGeneration += 1
         let generation = refreshGeneration
-        Task {
+        Task { @MainActor in
             do {
-                    let snapshot = try await client.fetchDashboardSnapshot()
-                await MainActor.run {
-                    guard generation == self.refreshGeneration else {
-                        self.logger.info("refresh ignored stale generation=\(generation) current=\(self.refreshGeneration) range=\(snapshot.selectedRange.rawValue)")
-                        return
-                    }
-                    self.logger.info("refresh ok range=\(snapshot.selectedRange.rawValue) health=\(snapshot.health.label) requests=\(snapshot.aggregate.scope.totalRequests) failures=\(snapshot.aggregate.scope.failureCount) recentFailures=\(snapshot.aggregate.recent.failureCount) adapters=\(snapshot.adapters.count) errors=\(snapshot.errors.count) cards=\(self.visibleCardItems())")
-                    showSnapshot(snapshot)
+                let snapshot = try await client.fetchDashboardSnapshot()
+                guard generation == self.refreshGeneration else {
+                    self.logger.info("refresh ignored stale generation=\(generation) current=\(self.refreshGeneration) range=\(snapshot.selectedRange.rawValue)")
+                    return
                 }
+                self.logger.info("refresh ok range=\(snapshot.selectedRange.rawValue) health=\(snapshot.health.label) requests=\(snapshot.aggregate.scope.totalRequests) failures=\(snapshot.aggregate.scope.failureCount) adapters=\(snapshot.adapters.count) errors=\(snapshot.errors.count)")
+                self.showSnapshot(snapshot)
             } catch {
-                await MainActor.run {
-                    guard generation == self.refreshGeneration else {
-                        self.logger.info("refresh error ignored stale generation=\(generation) current=\(self.refreshGeneration)")
-                        return
-                    }
-                    self.logger.error("refresh failed \(error.localizedDescription)")
-                    showError(error.localizedDescription)
+                guard generation == self.refreshGeneration else {
+                    self.logger.info("refresh error ignored stale generation=\(generation) current=\(self.refreshGeneration)")
+                    return
                 }
+                self.logger.error("refresh failed \(error.localizedDescription)")
+                self.showError(error.localizedDescription)
             }
         }
     }
@@ -242,7 +239,6 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         ensureSelectedSnapshotExists(in: snapshot)
         renderMenuTitle(for: snapshot)
         renderSnapshotMenuView()
-        logger.info("snapshot rendered title=\"\(statusItem.button?.title ?? "")\" cards=\(visibleCardItems())")
     }
 
     private func showError(_ message: String) {
@@ -279,10 +275,15 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
 
     func applyListVisibility() {
         renderSnapshotMenuView()
-        logger.info("card visibility enabled=\(visibleCardItems())")
     }
 
     private func renderSnapshotMenuView() {
+        // The panel is a menu bar popover: rebuilding its view tree while hidden is wasted work.
+        guard isMainPanelPresented || mainPanel?.isVisible == true || snapshotView == nil else {
+            needsSnapshotRender = true
+            return
+        }
+        needsSnapshotRender = false
         let texts = TextBundle.forLanguage(config?.resolvedLanguage ?? .english)
         let selectRange: (UsageTimeRange) -> Void = { [weak self] in self?.selectTimeRangeTab($0) }
         let selectSource: (String) -> Void = { [weak self] in self?.selectSnapshotSource($0) }
@@ -357,6 +358,9 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
 
     private func showMainPanel() {
         configureMainPanelIfNeeded()
+        if needsSnapshotRender {
+            renderSnapshotMenuView()
+        }
         alignMainPanelWindow()
         mainPanel?.orderFrontRegardless()
         isMainPanelPresented = true
@@ -454,12 +458,6 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func visibleCardItems() -> String {
-        (config?.resolvedListItems ?? DisplayItem.defaultItems)
-            .map { $0.rawValue }
-            .sorted()
-            .joined(separator: ",")
-    }
 
     @objc private func openSettings() {
         guard let config else { return }
@@ -514,4 +512,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     @objc private func quit() { NSApp.terminate(nil) }
 }
 
-let app = NSApplication.shared; let delegate = MenuBarApp(); app.delegate = delegate; app.run()
+let app = NSApplication.shared
+let delegate = MainActor.assumeIsolated { MenuBarApp() }
+app.delegate = delegate
+app.run()
