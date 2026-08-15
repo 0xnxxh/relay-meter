@@ -38,13 +38,22 @@
   "language": "en",
   "listItems": [
     "traffic",
-    "successRate",
     "tokens",
-    "latency",
     "recent",
-    "trend",
+    "latency",
     "topModel",
+    "trend",
+    "activity",
     "refreshedAt"
+  ],
+  "cardOrder": [
+    "traffic",
+    "tokens",
+    "recent",
+    "latency",
+    "topModel",
+    "trend",
+    "activity"
   ],
   "managementKey": "replace-with-cliproxy-management-key",
   "newApiUserID": null,

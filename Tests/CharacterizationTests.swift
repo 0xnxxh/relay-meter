@@ -10,6 +10,7 @@ struct CharacterizationTests {
         testUsageCostAggregation()
         testRefreshGateCoalescesOverlappingRequests()
         testDashboardSnapshotStoreMatchesConfigurationWithoutSecrets()
+        testCardConfigurationResolution()
         testHealthColors()
         testUsageActivityDateBounds()
         testActivityDisplayModes()
@@ -23,11 +24,14 @@ struct CharacterizationTests {
         await testNewAPIActivityUsesAggregateEndpoint()
         await testSingleAdapterDashboardRankingLabels()
         testActivityMenuLayout()
+        testTrafficCardVisibilityFollowsTrafficToggle()
+        testMenuCardsFollowConfiguredOrder()
         testCostMenuLayout()
         testTopModelRankingCardLayout()
         testActivityWindowLayout()
         testEnglishSettingsCopy()
         testChineseSettingsCopy()
+        testCardSettingsSaveVisibilityAndOrder()
         testLaunchAtLoginSetting()
         print("Characterization tests passed")
     }
@@ -108,6 +112,22 @@ struct CharacterizationTests {
         config.adapters[0].managementKey = config.managementKey
         config.timeRange = .sevenDays
         expect(store.load(for: config) == nil, "a cached dashboard must not cross time-range boundaries")
+    }
+
+    private static func testCardConfigurationResolution() {
+        var config = AppConfig.defaultConfig
+        config.activityPeriod = .lastYear
+        config.listItems = [.tokens, .traffic, .refreshedAt]
+        config.cardOrder = [.traffic, .tokens]
+        expect(config.resolvedCardOrder == DisplayItem.defaultCardOrder, "partial card order must restore every supported card")
+        expect(config.resolvedVisibleCards == [.traffic, .tokens], "card visibility must follow listItems while order follows cardOrder")
+
+        config.cardOrder = nil
+        config.listItems = [.successRate, .tokens, .topApiKey]
+        expect(config.resolvedVisibleCards == [.tokens], "legacy sub-metric and removed card values must not create visible cards")
+
+        config.listItems = []
+        expect(config.resolvedVisibleCards.isEmpty, "an explicitly empty listItems value must hide every card")
     }
 
     private static func testHealthColors() {
@@ -429,6 +449,60 @@ struct CharacterizationTests {
     }
 
     @MainActor
+    private static func testTrafficCardVisibilityFollowsTrafficToggle() {
+        var scope = UsageScope()
+        scope.totalRequests = 42
+        scope.successCount = 41
+        scope.failureCount = 1
+        let snapshot = UsageSnapshot(
+            sourceID: "preview",
+            sourceName: "Preview",
+            platform: .cliproxyapiPro,
+            selectedRange: .today,
+            scope: scope,
+            recent: UsageScope(),
+            trendPoints: [],
+            activity: previewActivityDataset(),
+            topModels: [],
+            topApiKeys: [],
+            refreshedAt: Date()
+        )
+        var config = AppConfig.defaultConfig
+        config.listItems = [.successRate, .tokens]
+
+        let view = SnapshotMenuView(snapshot: snapshot, config: config, texts: TextBundle.forLanguage(.english))
+        var copy = Set<String>()
+        collectCopy(from: view, into: &copy)
+
+        expect(!copy.contains("TRAFFIC"), "the traffic card must stay hidden when Traffic is unchecked")
+        expect(copy.contains("TOKENS"), "other enabled cards must remain visible")
+    }
+
+    @MainActor
+    private static func testMenuCardsFollowConfiguredOrder() {
+        var config = AppConfig.defaultConfig
+        config.listItems = [.trend, .traffic, .tokens]
+        config.cardOrder = [.trend, .traffic, .tokens]
+        let view = SnapshotMenuView(
+            snapshot: previewDashboardSnapshot().aggregate,
+            config: config,
+            texts: TextBundle.forLanguage(.english)
+        )
+        guard let root = view.subviews.compactMap({ $0 as? NSStackView }).first else {
+            fatalError("menu card stack missing")
+        }
+        let orderedCardIDs = root.arrangedSubviews.compactMap { view -> String? in
+            guard let identifier = view.identifier?.rawValue,
+                  identifier.hasPrefix("menu-card-") else { return nil }
+            return identifier
+        }
+        expect(
+            orderedCardIDs == ["menu-card-trend", "menu-card-traffic", "menu-card-tokens"],
+            "menu cards must render in the saved card order"
+        )
+    }
+
+    @MainActor
     private static func testCostMenuLayout() {
         var scope = UsageScope()
         scope.totalTokens = 1_234_500_000
@@ -689,9 +763,10 @@ struct CharacterizationTests {
             "Launch at Login", "Spend",
             "English", "Requests + success rate", "Total tokens", "Failures", "Success rate",
             "Average latency", "Cache tokens", "Last 15m activity", "Today", "7d", "30d", "All",
-            "Traffic", "Tokens", "Cache", "Latency", "Last 15m", "Trend chart", "Top model", "Last updated",
+            "Traffic", "Tokens", "Latency", "Last 15m", "Trend chart", "Usage heatmap", "Top model",
             "Enabled", "SHOW", "HIDE", "DELETE", "ADD ADAPTER",
             "Enabled adapters refresh in parallel; one failed adapter does not block the others.",
+            "Select cards to show and use the arrows to change their menu order.",
             "CHECK FOR UPDATES...", "CANCEL", "SAVE"
         ], in: copy, language: "English")
         expect(!copy.contains("Top API key"), "English settings must not offer the removed Top API key card")
@@ -707,12 +782,58 @@ struct CharacterizationTests {
             "登录时启动", "花费",
             "简体中文", "请求数 + 成功率", "总 Token", "失败数", "成功率",
             "平均延迟", "缓存 Token", "最近 15 分钟活跃", "今天", "7 天", "30 天", "全部",
-            "流量", "Token", "缓存", "延迟", "最近 15 分钟", "趋势曲线图", "Top 模型", "最后更新时间",
+            "流量", "Token", "延迟", "最近 15 分钟", "趋势曲线图", "用量热力图", "Top 模型",
             "启用", "显示", "隐藏", "删除", "添加 ADAPTER",
             "启用的 adapter 会并发刷新；单个 adapter 失败不会阻止其他 adapter 展示。",
+            "勾选控制卡片显示，使用箭头调整主界面顺序。",
             "检查更新...", "取消", "保存"
         ], in: copy, language: "Chinese")
         expect(!copy.contains("Top API Key"), "Chinese settings must not offer the removed Top API key card")
+    }
+
+    @MainActor
+    private static func testCardSettingsSaveVisibilityAndOrder() {
+        var savedConfig: AppConfig?
+        var config = AppConfig.defaultConfig
+        config.listItems = [.tokens, .trend, .traffic, .refreshedAt]
+        config.cardOrder = nil
+        let controller = SettingsWindowController(
+            config: config,
+            launchAtLoginEnabled: false,
+            launchAtLoginRequiresApproval: false,
+            onSave: { saved, _ in savedConfig = saved },
+            onCheckForUpdates: {}
+        )
+        guard let contentView = controller.window?.contentView,
+              let moveTrendUp = findView(in: contentView, matching: {
+                  $0.identifier?.rawValue == "card-move-up-trend"
+              }) as? NSButton else {
+            fatalError("card ordering controls missing")
+        }
+        if let previewPath = ProcessInfo.processInfo.environment["RELAY_METER_CARD_SETTINGS_PREVIEW_PATH"],
+           let cardOptions = findView(in: contentView, matching: {
+               $0.identifier?.rawValue == "card-options"
+           }) {
+            cardOptions.setFrameSize(cardOptions.fittingSize)
+            cardOptions.layoutSubtreeIfNeeded()
+            render(cardOptions, to: previewPath)
+        }
+
+        moveTrendUp.performClick(nil)
+
+        guard let trafficToggle = findView(in: contentView, matching: {
+                  $0.identifier?.rawValue == "card-toggle-traffic"
+              }) as? NSButton,
+              let save = findButton(in: contentView, titled: "SAVE") else {
+            fatalError("card visibility controls missing")
+        }
+        trafficToggle.performClick(nil)
+        save.performClick(nil)
+
+        expect(
+            savedConfig?.listItems == [.trend, .tokens, .refreshedAt],
+            "settings must save visible cards in their adjusted order"
+        )
     }
 
     @MainActor

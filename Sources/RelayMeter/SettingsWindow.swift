@@ -24,7 +24,10 @@ final class SettingsWindowController: NSWindowController {
     private let titlePopup = PixelPopupButton()
     private let rangePopup = PixelPopupButton()
     private let launchAtLoginButton: NSButton
+    private let refreshedAtButton = NSButton(checkboxWithTitle: "", target: nil, action: nil)
     private var itemButtons: [DisplayItem: NSButton] = [:]
+    private var cardOrder: [DisplayItem]
+    private let cardOptionsStack = NSStackView()
     private weak var headerView: NSView?
     private weak var footerView: NSView?
     private weak var scrollView: NSScrollView?
@@ -49,6 +52,7 @@ final class SettingsWindowController: NSWindowController {
         self.config = config
         self.onSave = onSave
         self.onCheckForUpdates = onCheckForUpdates
+        cardOrder = config.resolvedCardOrder
         let initialTexts = SettingsTextBundle.forLanguage(config.resolvedLanguage)
         launchAtLoginButton = NSButton(
             checkboxWithTitle: launchAtLoginRequiresApproval ? initialTexts.approvalRequired : initialTexts.enabled,
@@ -141,6 +145,11 @@ final class SettingsWindowController: NSWindowController {
             items: UsageTimeRange.allCases.map { ($0.rawValue, $0.label(texts: texts)) },
             selected: config.resolvedTimeRange.rawValue
         )
+        refreshedAtButton.title = settingsTexts.enabled
+        refreshedAtButton.state = config.resolvedListItems.contains(.refreshedAt) ? .on : .off
+        refreshedAtButton.identifier = NSUserInterfaceItemIdentifier("showRefreshedAt")
+        refreshedAtButton.font = RelayTheme.font(size: 12, weight: .bold)
+        refreshedAtButton.contentTintColor = RelayTheme.accent
     }
 
     private func configureControlsIfNeeded() {
@@ -244,7 +253,8 @@ final class SettingsWindowController: NSWindowController {
             title: texts.adapters,
             rows: [
                 adaptersListView(),
-                formRow(title: texts.refreshIntervalSeconds, control: refreshIntervalField)
+                formRow(title: texts.refreshIntervalSeconds, control: refreshIntervalField),
+                adaptersHintLabel()
             ]
         ))
 
@@ -254,13 +264,14 @@ final class SettingsWindowController: NSWindowController {
                 formRow(title: settingsTexts.language, control: languagePopup),
                 formRow(title: settingsTexts.menuBarTitle, control: titlePopup),
                 formRow(title: texts.range, control: rangePopup),
+                formRow(title: settingsTexts.itemRefreshedAt, control: refreshedAtButton),
                 formRow(title: settingsTexts.launchAtLogin, control: launchAtLoginButton)
             ]
         ))
 
         content.addArrangedSubview(section(
             title: settingsTexts.cardsSection,
-            rows: [cardOptionsView(), hintLabel()]
+            rows: [cardOptionsView(), cardHintLabel()]
         ))
 
         let documentWidth = Layout.windowWidth
@@ -404,20 +415,96 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func cardOptionsView() -> NSView {
-        let grid = NSGridView()
-        grid.rowSpacing = 8
-        grid.columnSpacing = 12
-        let enabledItems = Set(config.resolvedListItems)
-        let items = DisplayItem.configurableItems
+        cardOptionsStack.orientation = .vertical
+        cardOptionsStack.alignment = .leading
+        cardOptionsStack.spacing = 6
+        cardOptionsStack.identifier = NSUserInterfaceItemIdentifier("card-options")
+        refreshCardOptions()
+        return cardOptionsStack
+    }
 
-        for pair in stride(from: 0, to: items.count, by: 2) {
-            let left = checkbox(for: items[pair], enabledItems: enabledItems)
-            let right = pair + 1 < items.count ? checkbox(for: items[pair + 1], enabledItems: enabledItems) : NSView()
-            grid.addRow(with: [left, right])
+    private func refreshCardOptions() {
+        cardOptionsStack.arrangedSubviews.forEach { view in
+            cardOptionsStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
         }
-        grid.column(at: 0).width = 214
-        grid.column(at: 1).width = 214
-        return grid
+        itemButtons.removeAll()
+        let enabledItems = Set(config.resolvedListItems)
+        for (index, item) in cardOrder.enumerated() {
+            cardOptionsStack.addArrangedSubview(cardOptionRow(
+                for: item,
+                isEnabled: enabledItems.contains(item),
+                canMoveUp: index > 0,
+                canMoveDown: index < cardOrder.count - 1
+            ))
+        }
+        updateDocumentHeight()
+    }
+
+    private func cardOptionRow(for item: DisplayItem, isEnabled: Bool, canMoveUp: Bool, canMoveDown: Bool) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
+        row.widthAnchor.constraint(equalToConstant: Layout.contentWidth - 32).isActive = true
+        row.heightAnchor.constraint(equalToConstant: 30).isActive = true
+
+        let toggle = NSButton(checkboxWithTitle: settingsTexts.itemLabel(item), target: self, action: #selector(cardVisibilityChanged(_:)))
+        toggle.state = isEnabled ? .on : .off
+        toggle.identifier = NSUserInterfaceItemIdentifier("card-toggle-\(item.rawValue)")
+        toggle.font = RelayTheme.font(size: 12, weight: .bold)
+        toggle.contentTintColor = RelayTheme.accent
+        toggle.lineBreakMode = .byTruncatingTail
+        itemButtons[item] = toggle
+        row.addArrangedSubview(toggle)
+        row.addArrangedSubview(NSView())
+
+        let upButton = cardOrderButton(
+            systemSymbol: "chevron.up",
+            tooltip: settingsTexts.moveUp,
+            item: item,
+            action: #selector(moveCardUp(_:)),
+            isEnabled: canMoveUp
+        )
+        upButton.identifier = NSUserInterfaceItemIdentifier("card-move-up-\(item.rawValue)")
+        row.addArrangedSubview(upButton)
+
+        let downButton = cardOrderButton(
+            systemSymbol: "chevron.down",
+            tooltip: settingsTexts.moveDown,
+            item: item,
+            action: #selector(moveCardDown(_:)),
+            isEnabled: canMoveDown
+        )
+        downButton.identifier = NSUserInterfaceItemIdentifier("card-move-down-\(item.rawValue)")
+        row.addArrangedSubview(downButton)
+        return row
+    }
+
+    private func cardOrderButton(
+        systemSymbol: String,
+        tooltip: String,
+        item: DisplayItem,
+        action: Selector,
+        isEnabled: Bool
+    ) -> NSButton {
+        let button = NSButton(title: "", target: self, action: action)
+        button.imagePosition = .imageOnly
+        button.toolTip = tooltip
+        button.setAccessibilityLabel("\(settingsTexts.itemLabel(item)) · \(tooltip)")
+        button.tag = DisplayItem.configurableCards.firstIndex(of: item) ?? -1
+        button.isEnabled = isEnabled
+        if let image = NSImage(systemSymbolName: systemSymbol, accessibilityDescription: tooltip) {
+            button.image = image.withSymbolConfiguration(.init(pointSize: 10, weight: .bold))
+            button.image?.isTemplate = true
+        }
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.widthAnchor.constraint(equalToConstant: 30).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 26).isActive = true
+        RelayTheme.styleButton(button, tint: RelayTheme.cyan, fontSize: 10)
+        button.title = ""
+        button.attributedTitle = NSAttributedString(string: "")
+        return button
     }
 
     private func adaptersListView() -> NSView {
@@ -567,18 +654,16 @@ final class SettingsWindowController: NSWindowController {
         return row
     }
 
-    private func checkbox(for item: DisplayItem, enabledItems: Set<DisplayItem>) -> NSButton {
-        let button = NSButton(checkboxWithTitle: settingsTexts.itemLabel(item), target: nil, action: nil)
-        button.state = enabledItems.contains(item) ? .on : .off
-        button.font = RelayTheme.font(size: 12, weight: .bold)
-        button.contentTintColor = RelayTheme.accent
-        button.lineBreakMode = .byTruncatingTail
-        itemButtons[item] = button
-        return button
+    private func adaptersHintLabel() -> NSTextField {
+        let hint = label(settingsTexts.adaptersHint, size: 11, weight: .bold, color: RelayTheme.muted)
+        hint.maximumNumberOfLines = 2
+        hint.lineBreakMode = .byTruncatingTail
+        hint.widthAnchor.constraint(equalToConstant: Layout.contentWidth - 32).isActive = true
+        return hint
     }
 
-    private func hintLabel() -> NSTextField {
-        let hint = label(settingsTexts.adaptersHint, size: 11, weight: .bold, color: RelayTheme.muted)
+    private func cardHintLabel() -> NSTextField {
+        let hint = label(settingsTexts.cardsHint, size: 11, weight: .bold, color: RelayTheme.muted)
         hint.maximumNumberOfLines = 2
         hint.lineBreakMode = .byTruncatingTail
         hint.widthAnchor.constraint(equalToConstant: Layout.contentWidth - 32).isActive = true
@@ -639,7 +724,9 @@ final class SettingsWindowController: NSWindowController {
         config.timeRange = UsageTimeRange(rawValue: selectedValue(rangePopup))
         config.activityPeriod = config.resolvedActivityPeriod
         config.display = config.titleMetric?.rawValue
-        config.listItems = DisplayItem.configurableItems.filter { itemButtons[$0]?.state == .on }
+        let enabledCards = cardOrder.filter { itemButtons[$0]?.state == .on }
+        config.cardOrder = cardOrder
+        config.listItems = enabledCards + (refreshedAtButton.state == .on ? [.refreshedAt] : [])
         onSave(config, launchAtLoginButton.state == .on)
         close()
     }
@@ -690,6 +777,39 @@ final class SettingsWindowController: NSWindowController {
     @objc private func adapterEnabledChanged(_ sender: NSButton) {
         guard let controls = adapterControls.first(where: { $0.enabledButton === sender }) else { return }
         updateAdapterControlsEnabled(controls)
+    }
+
+    @objc private func cardVisibilityChanged(_ sender: NSButton) {
+        guard let item = cardItem(for: sender) else { return }
+        itemButtons[item]?.state = sender.state
+    }
+
+    @objc private func moveCardUp(_ sender: NSButton) {
+        moveCard(from: sender, offset: -1)
+    }
+
+    @objc private func moveCardDown(_ sender: NSButton) {
+        moveCard(from: sender, offset: 1)
+    }
+
+    private func moveCard(from sender: NSButton, offset: Int) {
+        guard let item = cardItem(for: sender), let index = cardOrder.firstIndex(of: item) else { return }
+        let destination = index + offset
+        guard cardOrder.indices.contains(destination) else { return }
+        let enabledItems = Set(itemButtons.compactMap { $0.value.state == .on ? $0.key : nil })
+        config.listItems = cardOrder.filter(enabledItems.contains) + (Set(config.resolvedListItems).contains(.refreshedAt) ? [.refreshedAt] : [])
+        cardOrder.swapAt(index, destination)
+        refreshCardOptions()
+    }
+
+    private func cardItem(for button: NSButton) -> DisplayItem? {
+        if let item = DisplayItem.configurableCards.first(where: { itemButtons[$0] === button }) {
+            return item
+        }
+        if DisplayItem.configurableCards.indices.contains(button.tag) {
+            return DisplayItem.configurableCards[button.tag]
+        }
+        return nil
     }
 
     private func updateAdapterControlsEnabled(_ controls: AdapterConfigControls) {

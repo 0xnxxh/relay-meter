@@ -36,7 +36,8 @@ Open `Settings` from the menu bar and set:
 - `refreshIntervalSeconds`: refresh interval; the minimum is 10 seconds.
 - `titleMetric`: menu bar title metric, such as `requests`, `tokens`, `cost`, `successRate`, or `latency`.
 - `timeRange`: `today`, `7d`, `30d`, or `all`.
-- `listItems`: selects the cards shown in the menu. Spend appears inside the token card.
+- `listItems`: selects the cards shown in the menu. The Settings window can hide and reorder cards; spend appears inside the token card.
+- `cardOrder`: stores the card order independently from visibility so hidden cards keep their position when shown again.
 
 Saving in `Settings` applies the new config immediately. Keep `~/.config/relay-meter/config.json` private because it contains an access key.
 
@@ -116,7 +117,8 @@ xattr -cr "/Applications/Relay Meter.app"
 - `refreshIntervalSeconds`：刷新间隔，最小 10 秒。
 - `titleMetric`：菜单栏标题指标，例如 `requests`、`tokens`、`cost`、`successRate` 或 `latency`。
 - `timeRange`：`today`、`7d`、`30d` 或 `all`。
-- `listItems`：选择菜单中显示的卡片；花费整合在 Token 卡片内。
+- `listItems`：选择菜单中显示的卡片；设置窗口支持隐藏和调整卡片顺序，花费整合在 Token 卡片内。
+- `cardOrder`：独立保存卡片顺序，因此隐藏的卡片重新显示时仍保持原位置。
 
 在 `设置` 中保存后，新配置会立即生效。请保护好 `~/.config/relay-meter/config.json`，里面包含访问密钥。
 

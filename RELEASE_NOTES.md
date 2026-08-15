@@ -1,11 +1,11 @@
-# Relay Meter v1.0.12
+# Relay Meter v1.0.13
 
 ## Highlights
 
-- Restores the last successful dashboard immediately at launch while refreshing current data in the background.
-- Keeps the cached dashboard scoped to matching adapters, credentials, and time range without storing management keys.
+- Adds card ordering controls to Settings and applies the saved order to the menu.
+- Keeps hidden cards in their chosen position when they are shown again.
 
-## Performance
+## Fixes
 
-- Coalesces overlapping refreshes and cancels obsolete requests after configuration or time-range changes.
-- Removes unused API-key ranking requests from all supported adapters, reducing startup network work.
+- Hides the Traffic card whenever its own setting is unchecked.
+- Aligns card settings with the actual menu cards instead of exposing embedded metrics as separate card toggles.

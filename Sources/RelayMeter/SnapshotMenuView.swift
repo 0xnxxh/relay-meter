@@ -104,6 +104,7 @@ final class SnapshotMenuView: NSView {
     private func build(dashboard: UsageDashboardSnapshot, selectedSourceID: String, config: AppConfig?, texts: TextBundle) {
         let root = baseStack()
         let enabled = Set(config?.resolvedListItems ?? DisplayItem.defaultItems)
+        let visibleCards = config?.resolvedVisibleCards ?? DisplayItem.defaultCardOrder
         let selectedSnapshot = snapshot(for: selectedSourceID, dashboard: dashboard)
         root.addArrangedSubview(header(
             snapshot: selectedSnapshot,
@@ -115,24 +116,14 @@ final class SnapshotMenuView: NSView {
             texts: texts
         ))
 
-        for card in metricCards(snapshot: selectedSnapshot, enabled: enabled, texts: texts) {
-            root.addArrangedSubview(card)
+        for item in visibleCards {
+            if let card = menuCard(for: item, snapshot: selectedSnapshot, config: config, texts: texts) {
+                root.addArrangedSubview(card)
+            }
         }
 
         if selectedSnapshot.sourceID == UsageDashboardSnapshot.aggregateSourceID, !dashboard.errors.isEmpty {
             root.addArrangedSubview(adapterErrorsCard(dashboard: dashboard, texts: texts))
-        }
-
-        if enabled.contains(.topModel) {
-            root.addArrangedSubview(rankingCard(snapshot: selectedSnapshot, texts: texts))
-        }
-
-        if enabled.contains(.trend) {
-            root.addArrangedSubview(trendCard(snapshot: selectedSnapshot, texts: texts))
-        }
-
-        if enabled.contains(.activity), let config, let bounds = config.activityBounds() {
-            root.addArrangedSubview(activityCard(snapshot: selectedSnapshot, config: config, bounds: bounds, texts: texts))
         }
 
         finalizeLayout(root: root)
@@ -141,23 +132,13 @@ final class SnapshotMenuView: NSView {
     private func build(snapshot: UsageSnapshot, config: AppConfig?, texts: TextBundle) {
         let root = baseStack()
         let enabled = Set(config?.resolvedListItems ?? DisplayItem.defaultItems)
+        let visibleCards = config?.resolvedVisibleCards ?? DisplayItem.defaultCardOrder
         root.addArrangedSubview(header(snapshot: snapshot, title: "\(snapshot.sourceName) · \(snapshot.selectedRange.label(texts: texts))", dashboard: nil, selectedSourceID: snapshot.sourceID, config: config, enabled: enabled, texts: texts))
 
-        let cards = metricCards(snapshot: snapshot, enabled: enabled, texts: texts)
-        for card in cards {
-            root.addArrangedSubview(card)
-        }
-
-        if enabled.contains(.topModel) {
-            root.addArrangedSubview(rankingCard(snapshot: snapshot, texts: texts))
-        }
-
-        if enabled.contains(.trend) {
-            root.addArrangedSubview(trendCard(snapshot: snapshot, texts: texts))
-        }
-
-        if enabled.contains(.activity), let config, let bounds = config.activityBounds() {
-            root.addArrangedSubview(activityCard(snapshot: snapshot, config: config, bounds: bounds, texts: texts))
+        for item in visibleCards {
+            if let card = menuCard(for: item, snapshot: snapshot, config: config, texts: texts) {
+                root.addArrangedSubview(card)
+            }
         }
 
         finalizeLayout(root: root)
@@ -387,11 +368,11 @@ final class SnapshotMenuView: NSView {
         return row
     }
 
-    private func metricCards(snapshot: UsageSnapshot, enabled: Set<DisplayItem>, texts: TextBundle) -> [NSView] {
-        var cards: [NSView] = []
-
-        if enabled.contains(.traffic) || enabled.contains(.successRate) {
-            cards.append(metricCard(
+    private func menuCard(for item: DisplayItem, snapshot: UsageSnapshot, config: AppConfig?, texts: TextBundle) -> NSView? {
+        let card: NSView?
+        switch item {
+        case .traffic:
+            card = metricCard(
                 title: texts.traffic,
                 value: MenuValueFormatter.compact(snapshot.scope.totalRequests),
                 caption: texts.requests,
@@ -401,15 +382,13 @@ final class SnapshotMenuView: NSView {
                     (texts.successRate, MenuValueFormatter.percent(snapshot.scope.successRate)),
                     (texts.failures, MenuValueFormatter.number(snapshot.scope.failureCount))
                 ]
-            ))
-        }
-
-        if enabled.contains(.tokens) || enabled.contains(.cache) {
+            )
+        case .tokens:
             let costLabel = snapshot.scope.costUSD == nil
                 ? texts.cost
                 : (snapshot.scope.costIsEstimated ? texts.estimatedCost : texts.actualCost)
             let costValue = snapshot.scope.costUSD.map(MenuValueFormatter.currencyUSD) ?? "--"
-            cards.append(metricCard(
+            card = metricCard(
                 title: texts.tokens,
                 value: MenuValueFormatter.tokenCount(snapshot.scope.totalTokens),
                 caption: texts.total,
@@ -420,11 +399,9 @@ final class SnapshotMenuView: NSView {
                     (texts.cache, "\(MenuValueFormatter.tokenCount(snapshot.scope.cacheTokens)) / \(MenuValueFormatter.percent(snapshot.scope.cacheRate))"),
                     (costLabel, costValue)
                 ]
-            ))
-        }
-
-        if enabled.contains(.recent) {
-            cards.append(metricCard(
+            )
+        case .recent:
+            card = metricCard(
                 title: texts.recent,
                 value: MenuValueFormatter.compact(snapshot.recent.totalRequests),
                 caption: texts.requests,
@@ -434,11 +411,9 @@ final class SnapshotMenuView: NSView {
                     (texts.tokens, MenuValueFormatter.tokenCount(snapshot.recent.totalTokens)),
                     (texts.failures, MenuValueFormatter.number(snapshot.recent.failureCount))
                 ]
-            ))
-        }
-
-        if enabled.contains(.latency) {
-            cards.append(metricCard(
+            )
+        case .latency:
+            card = metricCard(
                 title: texts.latency,
                 value: snapshot.scope.avgLatencyMs.map(MenuValueFormatter.duration) ?? "--",
                 caption: texts.avg,
@@ -448,10 +423,22 @@ final class SnapshotMenuView: NSView {
                     (texts.ttft, snapshot.scope.avgTtftMs.map(MenuValueFormatter.duration) ?? "--"),
                     (texts.successRate, MenuValueFormatter.percent(snapshot.scope.successRate))
                 ]
-            ))
+            )
+        case .topModel:
+            card = rankingCard(snapshot: snapshot, texts: texts)
+        case .trend:
+            card = trendCard(snapshot: snapshot, texts: texts)
+        case .activity:
+            if let config, let bounds = config.activityBounds() {
+                card = activityCard(snapshot: snapshot, config: config, bounds: bounds, texts: texts)
+            } else {
+                card = nil
+            }
+        case .successRate, .cache, .topApiKey, .refreshedAt:
+            card = nil
         }
-
-        return cards
+        card?.identifier = NSUserInterfaceItemIdentifier("menu-card-\(item.rawValue)")
+        return card
     }
 
     private func metricCard(

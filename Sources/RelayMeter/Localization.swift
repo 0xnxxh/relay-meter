@@ -184,6 +184,7 @@ struct SettingsTextBundle {
     let addAdapter: String
     let delete: String
     let adaptersHint: String
+    let cardsHint: String
     let metricRequests: String
     let metricTokens: String
     let metricFailures: String
@@ -203,6 +204,8 @@ struct SettingsTextBundle {
     let itemTopModel: String
     let itemTopApiKey: String
     let itemRefreshedAt: String
+    let moveUp: String
+    let moveDown: String
 
     static func forLanguage(_ language: AppLanguage) -> SettingsTextBundle {
         language == .chinese ? chinese : english
@@ -262,6 +265,7 @@ struct SettingsTextBundle {
         addAdapter: "添加 Adapter",
         delete: "删除",
         adaptersHint: "启用的 adapter 会并发刷新；单个 adapter 失败不会阻止其他 adapter 展示。",
+        cardsHint: "勾选控制卡片显示，使用箭头调整主界面顺序。",
         metricRequests: "请求数 + 成功率",
         metricTokens: "总 Token",
         metricFailures: "失败数",
@@ -280,7 +284,9 @@ struct SettingsTextBundle {
         itemActivity: "用量热力图",
         itemTopModel: "Top 模型",
         itemTopApiKey: "Top API Key",
-        itemRefreshedAt: "最后更新时间"
+        itemRefreshedAt: "最后更新时间",
+        moveUp: "上移",
+        moveDown: "下移"
     )
 
     private static let english = SettingsTextBundle(
@@ -301,6 +307,7 @@ struct SettingsTextBundle {
         addAdapter: "Add Adapter",
         delete: "Delete",
         adaptersHint: "Enabled adapters refresh in parallel; one failed adapter does not block the others.",
+        cardsHint: "Select cards to show and use the arrows to change their menu order.",
         metricRequests: "Requests + success rate",
         metricTokens: "Total tokens",
         metricFailures: "Failures",
@@ -319,6 +326,8 @@ struct SettingsTextBundle {
         itemActivity: "Usage heatmap",
         itemTopModel: "Top model",
         itemTopApiKey: "Top API key",
-        itemRefreshedAt: "Last updated"
+        itemRefreshedAt: "Last updated",
+        moveUp: "Move up",
+        moveDown: "Move down"
     )
 }

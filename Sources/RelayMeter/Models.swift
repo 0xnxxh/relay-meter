@@ -13,6 +13,7 @@ struct AppConfig: Codable {
     var language: AppLanguage?
     var titleMetric: DisplayMetric?
     var listItems: [DisplayItem]?
+    var cardOrder: [DisplayItem]?
     var timeRange: UsageTimeRange?
     var activityPeriod: UsageActivityPeriod?
     var activityStartDate: Date?
@@ -43,6 +44,7 @@ struct AppConfig: Codable {
         language: .english,
         titleMetric: .requests,
         listItems: DisplayItem.defaultItems,
+        cardOrder: DisplayItem.defaultCardOrder,
         timeRange: .today,
         activityPeriod: .lastYear,
         activityStartDate: nil,
@@ -64,11 +66,23 @@ struct AppConfig: Codable {
     var resolvedListItems: [DisplayItem] {
         let values = listItems ?? DisplayItem.defaultItems
         let supported = values.filter { $0 != .topApiKey }
-        let resolved = supported.isEmpty ? DisplayItem.defaultItems : supported
-        if activityPeriod == nil, !resolved.contains(.activity) {
-            return resolved + [.activity]
+        if activityPeriod == nil, !supported.contains(.activity) {
+            return supported + [.activity]
         }
-        return resolved
+        return supported
+    }
+
+    var resolvedCardOrder: [DisplayItem] {
+        var seen = Set<DisplayItem>()
+        let configured = (cardOrder ?? listItems ?? DisplayItem.defaultCardOrder).filter {
+            DisplayItem.configurableCards.contains($0) && seen.insert($0).inserted
+        }
+        return configured + DisplayItem.defaultCardOrder.filter { !seen.contains($0) }
+    }
+
+    var resolvedVisibleCards: [DisplayItem] {
+        let enabled = Set(resolvedListItems)
+        return resolvedCardOrder.filter(enabled.contains)
     }
 
     var resolvedTimeRange: UsageTimeRange {
@@ -241,17 +255,26 @@ enum DisplayItem: String, Codable, CaseIterable {
     case topApiKey
     case refreshedAt
 
-    static let configurableItems = allCases.filter { $0 != .topApiKey }
+    static let configurableCards: [DisplayItem] = [
+        .traffic,
+        .tokens,
+        .recent,
+        .latency,
+        .topModel,
+        .trend,
+        .activity
+    ]
+
+    static let defaultCardOrder = configurableCards
 
     static let defaultItems: [DisplayItem] = [
         .traffic,
-        .successRate,
         .tokens,
-        .latency,
         .recent,
+        .latency,
+        .topModel,
         .trend,
         .activity,
-        .topModel,
         .refreshedAt
     ]
 }
