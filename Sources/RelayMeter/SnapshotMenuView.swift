@@ -10,26 +10,6 @@ final class SnapshotMenuView: NSView {
     private var sourceTabs: [(id: String, title: String)] = []
 
     init(
-        snapshot: UsageSnapshot,
-        config: AppConfig?,
-        texts: TextBundle,
-        onRangeSelected: ((UsageTimeRange) -> Void)? = nil,
-        onOpenActivityDetails: (() -> Void)? = nil,
-        onSourceSelected: ((String) -> Void)? = nil,
-        onRefresh: (() -> Void)? = nil,
-        onOpenMonitoring: (() -> Void)? = nil
-    ) {
-        self.onRangeSelected = onRangeSelected
-        self.onOpenActivityDetails = onOpenActivityDetails
-        self.onSourceSelected = onSourceSelected
-        self.onRefresh = onRefresh
-        self.onOpenMonitoring = onOpenMonitoring
-        super.init(frame: NSRect(x: 0, y: 0, width: contentWidth, height: 1))
-        RelayTheme.applyWindowBackground(to: self)
-        build(snapshot: snapshot, config: config, texts: texts)
-    }
-
-    init(
         dashboard: UsageDashboardSnapshot,
         config: AppConfig?,
         texts: TextBundle,
@@ -78,7 +58,6 @@ final class SnapshotMenuView: NSView {
                 reason: .requestFailed
             ),
             topModels: [],
-            topApiKeys: [],
             refreshedAt: Date()
         )
         let dashboard = UsageDashboardSnapshot(
@@ -124,21 +103,6 @@ final class SnapshotMenuView: NSView {
 
         if selectedSnapshot.sourceID == UsageDashboardSnapshot.aggregateSourceID, !dashboard.errors.isEmpty {
             root.addArrangedSubview(adapterErrorsCard(dashboard: dashboard, texts: texts))
-        }
-
-        finalizeLayout(root: root)
-    }
-
-    private func build(snapshot: UsageSnapshot, config: AppConfig?, texts: TextBundle) {
-        let root = baseStack()
-        let enabled = Set(config?.resolvedListItems ?? DisplayItem.defaultItems)
-        let visibleCards = config?.resolvedVisibleCards ?? DisplayItem.defaultCardOrder
-        root.addArrangedSubview(header(snapshot: snapshot, title: "\(snapshot.sourceName) · \(snapshot.selectedRange.label(texts: texts))", dashboard: nil, selectedSourceID: snapshot.sourceID, config: config, enabled: enabled, texts: texts))
-
-        for item in visibleCards {
-            if let card = menuCard(for: item, snapshot: snapshot, config: config, texts: texts) {
-                root.addArrangedSubview(card)
-            }
         }
 
         finalizeLayout(root: root)

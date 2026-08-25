@@ -123,8 +123,7 @@ private struct CLIProxyAPIProUsageAdapter {
             recent: summarize(recentBuckets),
             trendPoints: trendPoints(todayBuckets, range: range),
             activity: activityDataset,
-            topModels: rank(modelBuckets: modelBuckets, label: \.model),
-            topApiKeys: [],
+            topModels: rankBuckets(modelBuckets, label: \.model),
             refreshedAt: Date()
         )
     }
@@ -167,7 +166,7 @@ private struct CLIProxyAPIProUsageAdapter {
 
         return try await requestJSON(
             components.url,
-            auth: .platform(config: config),
+            config: config,
             session: session,
             logger: logger,
             logName: "cliproxyapi-pro aggregates"
@@ -212,9 +211,6 @@ private struct CLIProxyAPIProUsageAdapter {
         return URL(string: "\(trimmed)/v0/management/usage/\(path)")!
     }
 
-    private func rank(modelBuckets buckets: [UsageAggregateBucket], label: (UsageAggregateBucket) -> String?) -> [UsageRankingRow] {
-        rankBuckets(buckets, label: label)
-    }
 }
 
 private struct Sub2APIUsageAdapter {
@@ -265,7 +261,6 @@ private struct Sub2APIUsageAdapter {
             trendPoints: trendPoints.sorted { $0.bucketStartMs < $1.bucketStartMs }.suffix(30).map { $0 },
             activity: activityDataset,
             topModels: modelRows.sortedForRanking().prefix(3).map { $0 },
-            topApiKeys: [],
             refreshedAt: Date()
         )
     }
@@ -273,7 +268,7 @@ private struct Sub2APIUsageAdapter {
     private func get<T: Decodable>(_ path: String) async throws -> T {
         try await requestJSON(
             platformURL(config: config, path: path),
-            auth: .platform(config: config),
+            config: config,
             session: session,
             logger: logger,
             logName: "sub2api \(path)"
@@ -345,7 +340,6 @@ private struct NewAPIUsageAdapter {
             trendPoints: trendPoints(from: logItems, range: range),
             activity: activityDataset,
             topModels: ranking(from: logItems, key: \.modelName),
-            topApiKeys: [],
             refreshedAt: Date()
         )
     }
@@ -353,7 +347,7 @@ private struct NewAPIUsageAdapter {
     private func get<T: Decodable>(_ path: String) async throws -> T {
         try await requestJSON(
             platformURL(config: config, path: path),
-            auth: .platform(config: config),
+            config: config,
             session: session,
             logger: logger,
             logName: "new-api \(path)"
@@ -492,31 +486,9 @@ private struct NewAPIUsageAdapter {
     }
 }
 
-private enum RequestAuth {
-    case platform(config: AppConfig)
-
-    func apply(to request: inout URLRequest) {
-        switch self {
-        case .platform(let config):
-            request.setValue(authValue(config: config), forHTTPHeaderField: config.resolvedAuthHeaderName)
-            if config.resolvedPlatform == .newApi, let userID = config.newApiUserID {
-                request.setValue(String(userID), forHTTPHeaderField: "New-Api-User")
-            }
-        }
-    }
-
-    private func authValue(config: AppConfig) -> String {
-        if config.resolvedPlatform == .cliproxyapiPro,
-           config.resolvedAuthHeaderName.caseInsensitiveCompare("Authorization") == .orderedSame {
-            return config.managementKey.lowercased().hasPrefix("bearer ") ? config.managementKey : "Bearer \(config.managementKey)"
-        }
-        return config.managementKey
-    }
-}
-
 private func requestJSON<T: Decodable>(
     _ url: URL?,
-    auth: RequestAuth,
+    config: AppConfig,
     session: URLSession,
     logger: AppLogger,
     logName: String
@@ -524,7 +496,19 @@ private func requestJSON<T: Decodable>(
     guard let url else { throw MonitorError.invalidResponse }
     var request = URLRequest(url: url)
     request.timeoutInterval = 15
-    auth.apply(to: &request)
+    let authValue: String
+    if config.resolvedPlatform == .cliproxyapiPro,
+       config.resolvedAuthHeaderName.caseInsensitiveCompare("Authorization") == .orderedSame {
+        authValue = config.managementKey.lowercased().hasPrefix("bearer ")
+            ? config.managementKey
+            : "Bearer \(config.managementKey)"
+    } else {
+        authValue = config.managementKey
+    }
+    request.setValue(authValue, forHTTPHeaderField: config.resolvedAuthHeaderName)
+    if config.resolvedPlatform == .newApi, let userID = config.newApiUserID {
+        request.setValue(String(userID), forHTTPHeaderField: "New-Api-User")
+    }
     logger.info("GET \(logName) path=\(url.path)")
     let (data, response) = try await session.data(for: request)
     guard let httpResponse = response as? HTTPURLResponse else {
@@ -742,7 +726,6 @@ private func aggregateSnapshot(
     var recent = UsageScope()
     var trendByBucket: [Int: UsageTrendPoint] = [:]
     var modelRows: [String: UsageRankingRow] = [:]
-    var apiKeyRows: [String: UsageRankingRow] = [:]
     var refreshedAt = Date()
     let showsAdapterName = expectedActivitySourceCount > 1
 
@@ -760,7 +743,6 @@ private func aggregateSnapshot(
 
         let adapterName = showsAdapterName ? snapshot.sourceName : nil
         mergeRankingRows(snapshot.topModels, adapterName: adapterName, into: &modelRows)
-        mergeRankingRows(snapshot.topApiKeys, adapterName: adapterName, into: &apiKeyRows)
     }
     if let cost = UsageCost.totalIfComplete(snapshots.map(\.scope), expectedCount: expectedActivitySourceCount) {
         scope.costUSD = cost.value
@@ -784,7 +766,6 @@ private func aggregateSnapshot(
             expectedSourceCount: expectedActivitySourceCount
         ),
         topModels: Array(modelRows.values).sortedForRanking().prefix(3).map { $0 },
-        topApiKeys: Array(apiKeyRows.values).sortedForRanking().prefix(3).map { $0 },
         refreshedAt: refreshedAt
     )
 }

@@ -8,13 +8,12 @@ struct CharacterizationTests {
         testMenuValueFormatter()
         testTokenCountFormatter()
         testUsageCostAggregation()
-        testRefreshGateCoalescesOverlappingRequests()
         testDashboardSnapshotStoreMatchesConfigurationWithoutSecrets()
+        testLegacyActivityConfigurationMigration()
+        testLegacyDashboardIgnoresRemovedTopAPIKeys()
         testCardConfigurationResolution()
         testHealthColors()
-        testUsageActivityDateBounds()
         testActivityDisplayModes()
-        testUsageActivityAggregation()
         testUsageActivityCoverage()
         testUsageActivitySourceAggregation()
         testUsageActivityQuantileIntensity()
@@ -73,16 +72,6 @@ struct CharacterizationTests {
         expect(UsageCost.totalIfComplete([pricedScope], expectedCount: 2) == nil, "a failed adapter must suppress the aggregate cost")
     }
 
-    private static func testRefreshGateCoalescesOverlappingRequests() {
-        var gate = RefreshGate()
-        expect(gate.begin(), "the first refresh must acquire the refresh gate")
-        expect(!gate.begin(), "an overlapping refresh must be coalesced")
-        gate.finish()
-        expect(gate.begin(), "a completed refresh must release the refresh gate")
-        gate.reset()
-        expect(gate.begin(), "configuration changes must reset the refresh gate")
-    }
-
     private static func testDashboardSnapshotStoreMatchesConfigurationWithoutSecrets() {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("relay-meter-snapshot-test-\(UUID().uuidString)")
@@ -114,6 +103,37 @@ struct CharacterizationTests {
         expect(store.load(for: config) == nil, "a cached dashboard must not cross time-range boundaries")
     }
 
+    private static func testLegacyActivityConfigurationMigration() {
+        let withoutActivityPeriod = #"{"adapters":[],"baseURL":"https://relay.example.com","managementKey":"key","listItems":["traffic"]}"#
+        let withActivityPeriod = #"{"adapters":[],"baseURL":"https://relay.example.com","managementKey":"key","listItems":["traffic"],"activityPeriod":"last30Days"}"#
+        let decoder = JSONDecoder()
+        let migrated = try! decoder.decode(AppConfig.self, from: Data(withoutActivityPeriod.utf8))
+        let configured = try! decoder.decode(AppConfig.self, from: Data(withActivityPeriod.utf8))
+        let invalidActivityPeriod = #"{"adapters":[],"baseURL":"https://relay.example.com","managementKey":"key","activityPeriod":"invalid"}"#
+
+        expect(migrated.resolvedListItems == [.traffic, .activity], "pre-activity config must gain the Activity card")
+        expect(configured.resolvedListItems == [.traffic], "activity-aware config must preserve an explicitly hidden Activity card")
+        expect((try? decoder.decode(AppConfig.self, from: Data(invalidActivityPeriod.utf8))) == nil, "unsupported legacy Activity periods must remain invalid")
+    }
+
+    private static func testLegacyDashboardIgnoresRemovedTopAPIKeys() {
+        let snapshot = previewDashboardSnapshot()
+        let encoded = try! JSONEncoder().encode(snapshot)
+        var object = try! JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+        var aggregate = object["aggregate"] as! [String: Any]
+        aggregate["topApiKeys"] = [["label": "legacy-key", "requests": 4, "failures": 0, "tokens": 40]]
+        object["aggregate"] = aggregate
+        object["adapters"] = (object["adapters"] as! [[String: Any]]).map { adapter in
+            var adapter = adapter
+            adapter["topApiKeys"] = [["label": "legacy-key", "requests": 4, "failures": 0, "tokens": 40]]
+            return adapter
+        }
+        let legacyData = try! JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try! JSONDecoder().decode(UsageDashboardSnapshot.self, from: legacyData)
+        expect(decoded.aggregate.scope.totalRequests == snapshot.aggregate.scope.totalRequests, "legacy dashboard must ignore removed Top API key data")
+    }
+
     private static func testCardConfigurationResolution() {
         var config = AppConfig.defaultConfig
         config.activityPeriod = .lastYear
@@ -135,79 +155,6 @@ struct CharacterizationTests {
         expect(RelayTheme.healthColor(.idle).isEqual(RelayTheme.muted), "idle health color changed")
         expect(RelayTheme.healthColor(.warn).isEqual(RelayTheme.warn), "warning health color changed")
         expect(RelayTheme.healthColor(.bad).isEqual(RelayTheme.down), "bad health color changed")
-    }
-
-    private static func testUsageActivityDateBounds() {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let reference = date("2026-07-21T15:30:00Z")
-
-        expect(
-            UsageActivityPeriod.thisWeek.bounds(reference: reference, calendar: calendar) == UsageDateBounds(
-                start: date("2026-07-20T00:00:00Z"),
-                end: reference
-            ),
-            "this-week activity bounds changed"
-        )
-        expect(
-            UsageActivityPeriod.thisMonth.bounds(reference: reference, calendar: calendar) == UsageDateBounds(
-                start: date("2026-07-01T00:00:00Z"),
-                end: reference
-            ),
-            "this-month activity bounds changed"
-        )
-        expect(
-            UsageActivityPeriod.thisYear.bounds(reference: reference, calendar: calendar) == UsageDateBounds(
-                start: date("2026-01-01T00:00:00Z"),
-                end: reference
-            ),
-            "this-year activity bounds changed"
-        )
-        expect(
-            UsageActivityPeriod.last7Days.bounds(reference: reference, calendar: calendar) == UsageDateBounds(
-                start: date("2026-07-15T00:00:00Z"),
-                end: reference
-            ),
-            "rolling seven-day activity bounds changed"
-        )
-        expect(
-            UsageActivityPeriod.custom.bounds(
-                reference: reference,
-                calendar: calendar,
-                customStart: date("2026-02-03T18:00:00Z"),
-                customEnd: date("2026-02-05T09:00:00Z")
-            ) == UsageDateBounds(
-                start: date("2026-02-03T00:00:00Z"),
-                end: date("2026-02-05T23:59:59Z")
-            ),
-            "custom activity bounds must include the full end day"
-        )
-    }
-
-    private static func testUsageActivityAggregation() {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let points = [
-            UsageTrendPoint(bucketStartMs: milliseconds("2026-07-01T10:00:00Z"), label: "", requests: 2, failures: 0, tokens: 100),
-            UsageTrendPoint(bucketStartMs: milliseconds("2026-07-01T18:00:00Z"), label: "", requests: 3, failures: 1, tokens: 250),
-            UsageTrendPoint(bucketStartMs: milliseconds("2026-07-08T12:00:00Z"), label: "", requests: 4, failures: 0, tokens: 50)
-        ]
-
-        let daily = UsageActivitySeries.aggregate(points, granularity: .daily, calendar: calendar)
-        expect(daily.count == 2, "daily activity should merge points on the same day")
-        expect(daily[0].requests == 5 && daily[0].tokens == 350, "daily activity totals changed")
-
-        let weekly = UsageActivitySeries.aggregate(points, granularity: .weekly, calendar: calendar)
-        expect(weekly.count == 2, "weekly activity should use calendar weeks")
-        expect(weekly[0].requests == 5 && weekly[1].requests == 4, "weekly activity totals changed")
-
-        let monthly = UsageActivitySeries.aggregate(points, granularity: .monthly, calendar: calendar)
-        expect(monthly.count == 1 && monthly[0].tokens == 400, "monthly activity totals changed")
-
-        let cumulative = UsageActivitySeries.aggregate(points, granularity: .cumulative, calendar: calendar)
-        expect(cumulative.map(\.tokens) == [350, 400], "cumulative activity must use daily running totals")
-        expect(UsageActivitySeries.intensity(value: 0, maximum: 400) == 0, "zero usage must use the empty color")
-        expect(UsageActivitySeries.intensity(value: 400, maximum: 400) == 4, "maximum usage must use the darkest color")
     }
 
     private static func testActivityDisplayModes() {
@@ -285,9 +232,10 @@ struct CharacterizationTests {
 
     private static func testUsageActivityQuantileIntensity() {
         let values = [1, 2, 3, 100]
-        expect(UsageActivitySeries.intensity(value: 1, distribution: values) == 1, "lowest non-zero activity should use level one")
-        expect(UsageActivitySeries.intensity(value: 3, distribution: values) == 3, "a single outlier must not compress ordinary activity into level one")
-        expect(UsageActivitySeries.intensity(value: 100, distribution: values) == 4, "highest activity should use level four")
+        let sorted = UsageActivitySeries.sortedDistribution(values)
+        expect(UsageActivitySeries.intensity(value: 1, sortedDistribution: sorted) == 1, "lowest non-zero activity should use level one")
+        expect(UsageActivitySeries.intensity(value: 3, sortedDistribution: sorted) == 3, "a single outlier must not compress ordinary activity into level one")
+        expect(UsageActivitySeries.intensity(value: 100, sortedDistribution: sorted) == 4, "highest activity should use level four")
     }
 
     private static func testNewAPIActivityRowDecoding() {
@@ -311,6 +259,10 @@ struct CharacterizationTests {
         let snapshot = try! await UsageClient(config: config, session: session).fetchSnapshot()
         let requests = RequestStubURLProtocol.recordedRequests()
         expect(snapshot.scope.costUSD == 1.25, "CLIProxy estimated cost must be exposed in USD")
+        expect(
+            requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer replace-with-management-key" },
+            "CLIProxy requests must preserve Bearer authorization"
+        )
         expect(
             requests.allSatisfy { request in
                 URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
@@ -347,6 +299,10 @@ struct CharacterizationTests {
         let requests = RequestStubURLProtocol.recordedRequests()
         expect(snapshot.scope.costUSD == 2, "sub2api actual cost must follow the selected trend range")
         expect(
+            requests.allSatisfy { $0.value(forHTTPHeaderField: "x-api-key") == "test-token" },
+            "sub2api requests must preserve x-api-key authorization"
+        )
+        expect(
             requests.allSatisfy { $0.url?.path != "/api/v1/admin/dashboard/api-keys-trend" },
             "sub2api refresh must not fetch an API-key ranking that has no visible consumer"
         )
@@ -377,6 +333,13 @@ struct CharacterizationTests {
 
         let snapshot = try! await UsageClient(config: config, session: session).fetchSnapshot()
         let requests = RequestStubURLProtocol.recordedRequests()
+        expect(
+            requests.allSatisfy {
+                $0.value(forHTTPHeaderField: "Authorization") == "test-token" &&
+                    $0.value(forHTTPHeaderField: "New-Api-User") == "1"
+            },
+            "new-api requests must preserve access-token and user headers"
+        )
         expect(requests.contains { $0.url?.path == "/api/status" }, "new-api activity must check data export status")
         expect(requests.contains { $0.url?.path == "/api/data/" || $0.url?.path == "/api/data" }, "new-api activity must use the aggregate data endpoint")
         let logRequests = requests.filter { $0.url?.path == "/api/log/" || $0.url?.path == "/api/log" }
@@ -464,13 +427,12 @@ struct CharacterizationTests {
             trendPoints: [],
             activity: previewActivityDataset(),
             topModels: [],
-            topApiKeys: [],
             refreshedAt: Date()
         )
         var config = AppConfig.defaultConfig
         config.listItems = [.successRate, .tokens]
 
-        let view = SnapshotMenuView(snapshot: snapshot, config: config, texts: TextBundle.forLanguage(.english))
+        let view = menuView(snapshot: snapshot, config: config)
         var copy = Set<String>()
         collectCopy(from: view, into: &copy)
 
@@ -484,9 +446,10 @@ struct CharacterizationTests {
         config.listItems = [.trend, .traffic, .tokens]
         config.cardOrder = [.trend, .traffic, .tokens]
         let view = SnapshotMenuView(
-            snapshot: previewDashboardSnapshot().aggregate,
+            dashboard: previewDashboardSnapshot(),
             config: config,
-            texts: TextBundle.forLanguage(.english)
+            texts: TextBundle.forLanguage(.english),
+            selectedSourceID: UsageDashboardSnapshot.aggregateSourceID
         )
         guard let root = view.subviews.compactMap({ $0 as? NSStackView }).first else {
             fatalError("menu card stack missing")
@@ -520,12 +483,11 @@ struct CharacterizationTests {
             trendPoints: [],
             activity: previewActivityDataset(),
             topModels: [],
-            topApiKeys: [],
             refreshedAt: Date()
         )
         var config = AppConfig.defaultConfig
         config.listItems = [.tokens]
-        let view = SnapshotMenuView(snapshot: snapshot, config: config, texts: TextBundle.forLanguage(.english))
+        let view = menuView(snapshot: snapshot, config: config)
         var copy = Set<String>()
         collectCopy(from: view, into: &copy)
         expect(copy.contains("TOKENS"), "tokens card title missing")
@@ -554,9 +516,6 @@ struct CharacterizationTests {
                 UsageRankingRow(label: "claude-opus-5", requests: 133, failures: 2, tokens: 300_000_000),
                 UsageRankingRow(label: "claude-sonnet-5", requests: 33, failures: 2, tokens: 100_000_000)
             ],
-            topApiKeys: [
-                UsageRankingRow(label: "sk-must-not-render", requests: 999, failures: 0, tokens: 999)
-            ],
             refreshedAt: Date()
         )
         var config = AppConfig.defaultConfig
@@ -564,7 +523,7 @@ struct CharacterizationTests {
         expect(config.resolvedListItems == [.topModel], "legacy Top API key settings must be ignored")
         expect(!DisplayItem.defaultItems.contains(.topApiKey), "Top API key must not be enabled by default")
 
-        let view = SnapshotMenuView(snapshot: snapshot, config: config, texts: TextBundle.forLanguage(.english))
+        let view = menuView(snapshot: snapshot, config: config)
         view.layoutSubtreeIfNeeded()
         var copy = Set<String>()
         collectCopy(from: view, into: &copy)
@@ -572,7 +531,6 @@ struct CharacterizationTests {
         expect(copy.contains("3,373 REQ / 600M TOKEN"), "model ranking must show request and compact token counts")
         expect(!copy.contains("3,373 REQ / 100%"), "model ranking must not show success rate")
         expect(!copy.contains("TOP API KEY"), "Top API key card must be removed")
-        expect(!copy.contains("sk-must-not-render"), "Top API key data must not render")
 
         guard let chart = findView(in: view, matching: {
             $0.identifier?.rawValue == "top-model-token-share-chart"
@@ -668,7 +626,6 @@ struct CharacterizationTests {
             trendPoints: [],
             activity: dataset,
             topModels: [],
-            topApiKeys: [],
             refreshedAt: Date()
         )
         let dashboard = UsageDashboardSnapshot(
@@ -733,7 +690,6 @@ struct CharacterizationTests {
             trendPoints: [],
             activity: previewActivityDataset(),
             topModels: [],
-            topApiKeys: [],
             refreshedAt: date("2026-08-14T12:00:00Z")
         )
         return UsageDashboardSnapshot(
@@ -742,6 +698,23 @@ struct CharacterizationTests {
             adapters: [snapshot],
             errors: [],
             refreshedAt: snapshot.refreshedAt
+        )
+    }
+
+    @MainActor
+    private static func menuView(snapshot: UsageSnapshot, config: AppConfig) -> SnapshotMenuView {
+        let dashboard = UsageDashboardSnapshot(
+            selectedRange: snapshot.selectedRange,
+            aggregate: snapshot,
+            adapters: [snapshot],
+            errors: [],
+            refreshedAt: snapshot.refreshedAt
+        )
+        return SnapshotMenuView(
+            dashboard: dashboard,
+            config: config,
+            texts: TextBundle.forLanguage(.english),
+            selectedSourceID: UsageDashboardSnapshot.aggregateSourceID
         )
     }
 

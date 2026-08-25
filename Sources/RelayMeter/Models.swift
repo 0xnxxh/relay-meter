@@ -15,9 +15,7 @@ struct AppConfig: Codable {
     var listItems: [DisplayItem]?
     var cardOrder: [DisplayItem]?
     var timeRange: UsageTimeRange?
-    var activityPeriod: UsageActivityPeriod?
-    var activityStartDate: Date?
-    var activityEndDate: Date?
+    var activityPeriod: LegacyActivityPeriod?
 
     static let defaultConfig = AppConfig(
         adapters: [
@@ -46,9 +44,7 @@ struct AppConfig: Codable {
         listItems: DisplayItem.defaultItems,
         cardOrder: DisplayItem.defaultCardOrder,
         timeRange: .today,
-        activityPeriod: .lastYear,
-        activityStartDate: nil,
-        activityEndDate: nil
+        activityPeriod: .lastYear
     )
 
     var refreshInterval: TimeInterval {
@@ -89,17 +85,11 @@ struct AppConfig: Codable {
         timeRange ?? .today
     }
 
-    var resolvedActivityPeriod: UsageActivityPeriod {
-        .lastYear
-    }
-
     func activityBounds(reference: Date = Date(), calendar: Calendar = .current) -> UsageDateBounds? {
-        UsageActivityPeriod.lastYear.bounds(
-            reference: reference,
-            calendar: calendar,
-            customStart: nil,
-            customEnd: nil
-        )
+        let end = reference
+        let today = calendar.startOfDay(for: end)
+        guard let start = calendar.date(byAdding: .year, value: -1, to: today) else { return nil }
+        return UsageDateBounds(start: start, end: end)
     }
 
     var resolvedAdapters: [AdapterConfig] {
@@ -231,6 +221,10 @@ enum UsageTimeRange: String, Codable, CaseIterable {
     }
 }
 
+enum LegacyActivityPeriod: String, Codable {
+    case today, thisWeek, thisMonth, thisYear, last7Days, last30Days, lastYear, custom
+}
+
 enum DisplayMetric: String, Codable, CaseIterable {
     case requests
     case tokens
@@ -287,7 +281,6 @@ struct UsageAggregateBucket: Decodable {
     var bucketStartMs: Int?
     var provider: String?
     var model: String?
-    var apiKeyHash: String?
     var totalRequests: Int
     var successCount: Int
     var failureCount: Int
@@ -446,7 +439,6 @@ struct UsageSnapshot: Codable {
     var trendPoints: [UsageTrendPoint]
     var activity: UsageActivityDataset
     var topModels: [UsageRankingRow]
-    var topApiKeys: [UsageRankingRow]
     var refreshedAt: Date
 
     var health: HealthState {

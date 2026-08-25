@@ -105,6 +105,12 @@ final class RankingMenuCardView: RoundedPanelView {
             ))
             stack.addArrangedSubview(item)
         }
+
+        // 行数不足 3 条时,让尾部弹性空白吸收多余高度,避免行与行之间被均分拉开
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow - 1, for: .vertical)
+        spacer.setContentCompressionResistancePriority(.defaultLow - 1, for: .vertical)
+        stack.addArrangedSubview(spacer)
         return stack
     }
 

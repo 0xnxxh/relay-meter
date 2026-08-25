@@ -722,7 +722,7 @@ final class SettingsWindowController: NSWindowController {
         config.language = AppLanguage(rawValue: selectedValue(languagePopup))
         config.titleMetric = DisplayMetric(rawValue: selectedValue(titlePopup))
         config.timeRange = UsageTimeRange(rawValue: selectedValue(rangePopup))
-        config.activityPeriod = config.resolvedActivityPeriod
+        config.activityPeriod = .lastYear
         config.display = config.titleMetric?.rawValue
         let enabledCards = cardOrder.filter { itemButtons[$0]?.state == .on }
         config.cardOrder = cardOrder

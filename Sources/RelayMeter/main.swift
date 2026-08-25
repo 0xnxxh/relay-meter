@@ -35,7 +35,6 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private var configReloadWorkItem: DispatchWorkItem?
     private var isSavingConfig = false
     private var refreshGeneration = 0
-    private var refreshGate = RefreshGate()
     private var refreshTask: Task<Void, Never>?
     private var needsSnapshotRender = false
 
@@ -213,7 +212,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
             loadConfigAndStart()
             return
         }
-        guard refreshGate.begin() else {
+        guard refreshTask == nil else {
             logger.info("refresh coalesced while request is in progress")
             return
         }
@@ -230,7 +229,6 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         refreshTask = Task { @MainActor in
             defer {
                 if generation == self.refreshGeneration {
-                    self.refreshGate.finish()
                     self.refreshTask = nil
                 }
             }
@@ -269,7 +267,6 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private func cancelRefresh() {
         refreshTask?.cancel()
         refreshTask = nil
-        refreshGate.reset()
     }
 
     private static func elapsedMilliseconds(since start: Date) -> Int {
@@ -336,10 +333,6 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         attributed.addAttribute(.foregroundColor, value: RelayTheme.text, range: NSRange(location: 2, length: attributed.length - 2))
         statusItem.button?.attributedTitle = attributed
         statusItem.button?.toolTip = "\(snapshot.health.label(language: config?.resolvedLanguage ?? .english)) · \(snapshot.adapters.count) adapters"
-    }
-
-    func applyListVisibility() {
-        renderSnapshotMenuView()
     }
 
     private func renderSnapshotMenuView() {
