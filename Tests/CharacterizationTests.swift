@@ -32,6 +32,8 @@ struct CharacterizationTests {
         testChineseSettingsCopy()
         testCardSettingsSaveVisibilityAndOrder()
         testLaunchAtLoginSetting()
+        testSidebarDockShares()
+        testSidebarDockLayout()
         print("Characterization tests passed")
     }
 
@@ -879,6 +881,155 @@ struct CharacterizationTests {
             fatalError("launch-at-login approval state missing")
         }
         expect(approvalToggle.title == "Approval Required", "pending login-item approval must be explicit")
+    }
+
+    private static func dockSnapshot(
+        sourceID: String,
+        name: String,
+        tokens: Int,
+        requests: Int,
+        failures: Int,
+        topModels: [UsageRankingRow] = []
+    ) -> UsageSnapshot {
+        var scope = UsageScope()
+        scope.totalTokens = tokens
+        scope.totalRequests = requests
+        scope.failureCount = failures
+        scope.successCount = requests - failures
+        return UsageSnapshot(
+            sourceID: sourceID,
+            sourceName: name,
+            platform: .cliproxyapiPro,
+            selectedRange: .today,
+            scope: scope,
+            recent: UsageScope(),
+            trendPoints: [],
+            activity: previewActivityDataset(),
+            topModels: topModels,
+            refreshedAt: Date()
+        )
+    }
+
+    private static func dockDashboard(_ adapters: [UsageSnapshot]) -> UsageDashboardSnapshot {
+        UsageDashboardSnapshot(
+            selectedRange: .today,
+            aggregate: dockSnapshot(
+                sourceID: UsageDashboardSnapshot.aggregateSourceID,
+                name: "All",
+                tokens: adapters.reduce(0) { $0 + $1.scope.totalTokens },
+                requests: adapters.reduce(0) { $0 + $1.scope.totalRequests },
+                failures: 0
+            ),
+            adapters: adapters,
+            errors: [],
+            refreshedAt: Date()
+        )
+    }
+
+    private static func testSidebarDockShares() {
+        let items = SidebarDockModel.dockItems(from: dockDashboard([
+            dockSnapshot(sourceID: "a", name: "Alpha", tokens: 250, requests: 10, failures: 0),
+            dockSnapshot(sourceID: "b", name: "Beta", tokens: 750, requests: 30, failures: 1)
+        ]))
+        expect(items.count == 2, "dock must render one gauge per adapter")
+        expect(items[0].sourceID == "b", "dock must order gauges by descending token share")
+        expect(abs(items[0].share - 0.75) < 0.0001, "dock share must be the adapter's token fraction")
+        expect(abs(items.reduce(0) { $0 + $1.share } - 1) < 0.0001, "dock shares must sum to 1")
+
+        let single = SidebarDockModel.dockItems(from: dockDashboard([
+            dockSnapshot(sourceID: "a", name: "Alpha", tokens: 42, requests: 1, failures: 0)
+        ]))
+        expect(abs(single[0].share - 1) < 0.0001, "a lone adapter holds the whole share")
+
+        // No tokens anywhere means no honest denominator: report 0, never an invented even split.
+        let empty = SidebarDockModel.dockItems(from: dockDashboard([
+            dockSnapshot(sourceID: "a", name: "Alpha", tokens: 0, requests: 0, failures: 0),
+            dockSnapshot(sourceID: "b", name: "Beta", tokens: 0, requests: 0, failures: 0)
+        ]))
+        expect(empty.allSatisfy { $0.share == 0 }, "zero total tokens must yield zero shares")
+
+        let modelShares = SidebarDockModel.modelShares(in: SidebarDockModel.dockItems(from: dockDashboard([
+            dockSnapshot(
+                sourceID: "a",
+                name: "Alpha",
+                tokens: 100,
+                requests: 4,
+                failures: 0,
+                topModels: [
+                    UsageRankingRow(label: "opus", requests: 3, failures: 0, tokens: 80),
+                    UsageRankingRow(label: "sonnet", requests: 1, failures: 0, tokens: 20)
+                ]
+            )
+        ]))[0])
+        expect(abs(modelShares[0].share - 0.8) < 0.0001, "bubble model share must be the model's token fraction")
+
+        var placement = AppConfig.defaultConfig
+        placement.sidebarDockEdge = nil
+        placement.sidebarDockOffset = nil
+        expect(placement.resolvedSidebarDockEdge == .right, "dock must default to the right edge")
+        expect(placement.resolvedSidebarDockOffset == 0.5, "dock must default to vertically centered")
+        placement.sidebarDockEdge = .left
+        placement.sidebarDockOffset = 1.8
+        expect(placement.resolvedSidebarDockEdge == .left, "dock edge must round-trip through the config")
+        expect(placement.resolvedSidebarDockOffset == 1, "dock offset must clamp into 0...1")
+        placement.sidebarDockOffset = -0.4
+        expect(placement.resolvedSidebarDockOffset == 0, "dock offset must clamp into 0...1")
+    }
+
+    @MainActor
+    private static func testSidebarDockLayout() {
+        let dashboard = dockDashboard([
+            dockSnapshot(sourceID: "a", name: "Alpha", tokens: 250_000, requests: 10, failures: 0),
+            dockSnapshot(sourceID: "b", name: "Beta", tokens: 750_000, requests: 30, failures: 1)
+        ])
+        let items = SidebarDockModel.dockItems(from: dashboard)
+        let dock = SidebarDockView(items: items, selectedIndex: nil, onSelect: { _ in })
+        dock.layoutSubtreeIfNeeded()
+        expect(dock.frame.width == SidebarDockView.Layout.width, "dock strip width must stay fixed")
+        expect(dock.frame.height > 0, "dock strip height must be measured from its content")
+
+        var copy = Set<String>()
+        collectCopy(from: dock, into: &copy)
+        // The ring fill carries the share; the label under it carries the absolute token volume.
+        expect(copy.contains("750K"), "dock label must show the adapter's token count")
+        expect(copy.contains("250K"), "dock must label every adapter, not just the leader")
+        expect(!copy.contains("75%"), "dock label must not repeat the share as a percentage")
+
+        for index in items.indices {
+            expect(
+                findView(in: dock, matching: { $0.identifier?.rawValue == "dock-item-\(index)" }) != nil,
+                "dock item \(index) missing"
+            )
+        }
+        expect(
+            findView(in: dock, matching: { $0.identifier?.rawValue == "dock-item-\(items.count)" }) == nil,
+            "dock must not render more items than adapters"
+        )
+
+        // The ring centre identifies the adapter, so same-platform adapters stay distinguishable.
+        expect(SidebarDockView.initial(for: "Alpha") == "A", "Latin initials must be uppercased")
+        expect(SidebarDockView.initial(for: "  beta ") == "B", "initials must ignore surrounding space")
+        expect(SidebarDockView.initial(for: "中转站") == "中", "CJK names must keep their first character")
+        expect(SidebarDockView.initial(for: "") == "?", "an unnamed adapter still needs a mark")
+
+        let bubble = SidebarBubbleView(
+            item: items[0],
+            accent: SidebarDockView.accent(at: 0),
+            texts: TextBundle.forLanguage(.english),
+            refreshedAt: dashboard.refreshedAt,
+            onOpenPanel: {}
+        )
+        bubble.layoutSubtreeIfNeeded()
+        var bubbleCopy = Set<String>()
+        collectCopy(from: bubble, into: &bubbleCopy)
+        expect(bubbleCopy.contains("BETA"), "bubble must name the selected adapter")
+        expect(bubbleCopy.contains("Token Share"), "bubble must state the share metric it shows")
+        expect(bubbleCopy.contains("OPEN FULL PANEL"), "bubble must offer a route to the full dashboard")
+
+        if let previewPath = ProcessInfo.processInfo.environment["RELAY_METER_DOCK_PREVIEW_PATH"] {
+            render(dock, to: "\(previewPath)-dock.png")
+            render(bubble, to: "\(previewPath)-bubble.png")
+        }
     }
 
     @MainActor

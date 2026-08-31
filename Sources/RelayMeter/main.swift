@@ -21,6 +21,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private var refreshTimer: Timer?
     private var settingsWindow: SettingsWindowController?
     private var activityWindow: ActivityWindowController?
+    private let sidebarDock = SidebarDockController()
     var lastSnapshot: UsageDashboardSnapshot?
     private var selectedSnapshotSourceID = UsageDashboardSnapshot.aggregateSourceID
     private var mainPanel: NSPanel?
@@ -41,6 +42,10 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         configureApplicationMenu()
+        sidebarDock.onOpenPanel = { [weak self] in self?.showMainPanel() }
+        sidebarDock.onPlacementChanged = { [weak self] edge, offset in
+            self?.persistSidebarDockPlacement(edge: edge, verticalOffset: offset)
+        }
         logger.info("app launch log=\(logger.url.path)")
         loadConfigAndStart()
     }
@@ -76,6 +81,42 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         renderSnapshotMenuView()
         if let lastSnapshot {
             showSnapshot(lastSnapshot)
+        } else {
+            syncSidebarDock()
+        }
+    }
+
+    /// Keeps the edge dock's data and visibility in step with the current config and snapshot.
+    private func syncSidebarDock() {
+        sidebarDock.update(
+            dashboard: lastSnapshot,
+            texts: TextBundle.forLanguage(config?.resolvedLanguage ?? .english),
+            edge: config?.resolvedSidebarDockEdge ?? .right,
+            verticalOffset: config?.resolvedSidebarDockOffset ?? 0.5
+        )
+        if config?.resolvedSidebarDockEnabled == true {
+            sidebarDock.show()
+        } else {
+            sidebarDock.hide()
+        }
+    }
+
+    /// Saves only the dock placement; a full `applyConfig` here would tear down and refetch everything.
+    private func persistSidebarDockPlacement(edge: SidebarDockEdge, verticalOffset: Double) {
+        guard var nextConfig = config else { return }
+        guard nextConfig.resolvedSidebarDockEdge != edge
+            || nextConfig.resolvedSidebarDockOffset != verticalOffset else { return }
+        nextConfig.sidebarDockEdge = edge
+        nextConfig.sidebarDockOffset = verticalOffset
+        do {
+            isSavingConfig = true
+            try configStore.save(nextConfig)
+            isSavingConfig = false
+            config = nextConfig
+            logger.info("sidebar dock moved edge=\(edge.rawValue) offset=\(String(format: "%.3f", verticalOffset))")
+        } catch {
+            isSavingConfig = false
+            logger.error("sidebar dock placement save failed \(error.localizedDescription)")
         }
     }
 
@@ -300,6 +341,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         ensureSelectedSnapshotExists(in: snapshot)
         renderMenuTitle(for: snapshot)
         renderSnapshotMenuView()
+        syncSidebarDock()
     }
 
     private func showError(_ message: String) {

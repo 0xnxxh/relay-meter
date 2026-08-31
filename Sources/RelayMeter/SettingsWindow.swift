@@ -25,6 +25,7 @@ final class SettingsWindowController: NSWindowController {
     private let rangePopup = PixelPopupButton()
     private let launchAtLoginButton: NSButton
     private let refreshedAtButton = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    private let sidebarDockButton = NSButton(checkboxWithTitle: "", target: nil, action: nil)
     private var itemButtons: [DisplayItem: NSButton] = [:]
     private var cardOrder: [DisplayItem]
     private let cardOptionsStack = NSStackView()
@@ -150,6 +151,11 @@ final class SettingsWindowController: NSWindowController {
         refreshedAtButton.identifier = NSUserInterfaceItemIdentifier("showRefreshedAt")
         refreshedAtButton.font = RelayTheme.font(size: 12, weight: .bold)
         refreshedAtButton.contentTintColor = RelayTheme.accent
+        sidebarDockButton.title = settingsTexts.enabled
+        sidebarDockButton.state = config.resolvedSidebarDockEnabled ? .on : .off
+        sidebarDockButton.identifier = NSUserInterfaceItemIdentifier("sidebarDock")
+        sidebarDockButton.font = RelayTheme.font(size: 12, weight: .bold)
+        sidebarDockButton.contentTintColor = RelayTheme.accent
     }
 
     private func configureControlsIfNeeded() {
@@ -265,7 +271,8 @@ final class SettingsWindowController: NSWindowController {
                 formRow(title: settingsTexts.menuBarTitle, control: titlePopup),
                 formRow(title: texts.range, control: rangePopup),
                 formRow(title: settingsTexts.itemRefreshedAt, control: refreshedAtButton),
-                formRow(title: settingsTexts.launchAtLogin, control: launchAtLoginButton)
+                formRow(title: settingsTexts.launchAtLogin, control: launchAtLoginButton),
+                formRow(title: settingsTexts.sidebarDock, control: sidebarDockButton)
             ]
         ))
 
@@ -727,6 +734,7 @@ final class SettingsWindowController: NSWindowController {
         let enabledCards = cardOrder.filter { itemButtons[$0]?.state == .on }
         config.cardOrder = cardOrder
         config.listItems = enabledCards + (refreshedAtButton.state == .on ? [.refreshedAt] : [])
+        config.sidebarDock = sidebarDockButton.state == .on
         onSave(config, launchAtLoginButton.state == .on)
         close()
     }

@@ -16,6 +16,10 @@ struct AppConfig: Codable {
     var cardOrder: [DisplayItem]?
     var timeRange: UsageTimeRange?
     var activityPeriod: LegacyActivityPeriod?
+    var sidebarDock: Bool?
+    var sidebarDockEdge: SidebarDockEdge?
+    /// 0 = dock top aligned with the top of the visible frame, 1 = bottom aligned.
+    var sidebarDockOffset: Double?
 
     static let defaultConfig = AppConfig(
         adapters: [
@@ -44,11 +48,26 @@ struct AppConfig: Codable {
         listItems: DisplayItem.defaultItems,
         cardOrder: DisplayItem.defaultCardOrder,
         timeRange: .today,
-        activityPeriod: .lastYear
+        activityPeriod: .lastYear,
+        sidebarDock: false,
+        sidebarDockEdge: .right,
+        sidebarDockOffset: 0.5
     )
 
     var refreshInterval: TimeInterval {
         max(refreshIntervalSeconds ?? 30, 10)
+    }
+
+    var resolvedSidebarDockEnabled: Bool {
+        sidebarDock ?? false
+    }
+
+    var resolvedSidebarDockEdge: SidebarDockEdge {
+        sidebarDockEdge ?? .right
+    }
+
+    var resolvedSidebarDockOffset: Double {
+        min(max(sidebarDockOffset ?? 0.5, 0), 1)
     }
 
     var resolvedLanguage: AppLanguage {
@@ -198,6 +217,11 @@ enum MonitorPlatform: String, Codable, CaseIterable {
         case .newApi: return "/"
         }
     }
+}
+
+enum SidebarDockEdge: String, Codable, CaseIterable {
+    case left
+    case right
 }
 
 enum AppLanguage: String, Codable, CaseIterable {

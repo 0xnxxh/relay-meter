@@ -59,6 +59,8 @@ struct TextBundle {
     let healthBad: String
     let loading: String
     let error: String
+    let dockTokenShare: String
+    let dockOpenPanel: String
 
     static func forLanguage(_ language: AppLanguage) -> TextBundle {
         language == .chinese ? chinese : english
@@ -88,7 +90,8 @@ struct TextBundle {
         total: "总量", input: "输入", output: "输出", reasoning: "推理",
         last15m: "15 分钟", tokenUnit: "tok", cacheUnit: "缓存", avg: "平均",
         ttft: "TTFT", healthGood: "健康", healthIdle: "空闲", healthWarn: "关注",
-        healthBad: "异常", loading: "刷新中", error: "错误"
+        healthBad: "异常", loading: "刷新中", error: "错误",
+        dockTokenShare: "Token 占比", dockOpenPanel: "打开完整面板"
     )
 
     private static let english = TextBundle(
@@ -115,7 +118,8 @@ struct TextBundle {
         output: "out", reasoning: "reasoning", last15m: "15m", tokenUnit: "tok",
         cacheUnit: "cache", avg: "avg", ttft: "TTFT", healthGood: "Healthy",
         healthIdle: "Idle", healthWarn: "Watch", healthBad: "Errors",
-        loading: "...", error: "Error"
+        loading: "...", error: "Error",
+        dockTokenShare: "Token Share", dockOpenPanel: "Open Full Panel"
     )
 
 }
@@ -128,6 +132,7 @@ struct SettingsTextBundle {
     let language: String
     let menuBarTitle: String
     let launchAtLogin: String
+    let sidebarDock: String
     let approvalRequired: String
     let cardsSection: String
     let cancel: String
@@ -208,6 +213,7 @@ struct SettingsTextBundle {
         language: "语言",
         menuBarTitle: "菜单栏默认显示",
         launchAtLogin: "登录时启动",
+        sidebarDock: "屏幕边缘侧边栏",
         approvalRequired: "需要授权",
         cardsSection: "卡片",
         cancel: "取消",
@@ -249,6 +255,7 @@ struct SettingsTextBundle {
         language: "Language",
         menuBarTitle: "Menu Bar Title",
         launchAtLogin: "Launch at Login",
+        sidebarDock: "Edge Sidebar",
         approvalRequired: "Approval Required",
         cardsSection: "Cards",
         cancel: "Cancel",
