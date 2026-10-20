@@ -587,6 +587,13 @@ final class SettingsWindowController: NSWindowController {
         stack.addArrangedSubview(userIDRow)
 
         controls.fieldsContainer = stack
+        let connectionHint = label(texts.ohMyCPAConnectionHint, size: 10, weight: .bold, color: RelayTheme.muted)
+        connectionHint.maximumNumberOfLines = 2
+        connectionHint.lineBreakMode = .byWordWrapping
+        connectionHint.widthAnchor.constraint(equalToConstant: Layout.contentWidth - 56).isActive = true
+        connectionHint.isHidden = controls.selectedPlatform != .ohMyCPA
+        controls.connectionHint = connectionHint
+        stack.addArrangedSubview(connectionHint)
         updateAdapterControlsEnabled(controls)
         panel.contentStack = stack
         return panel
@@ -849,6 +856,7 @@ final class SettingsWindowController: NSWindowController {
         guard let controls = adapterControls.first(where: { $0.platformPopup === sender }) else { return }
         let platform = controls.selectedPlatform
         controls.userIDRow?.isHidden = platform != .newApi
+        controls.connectionHint?.isHidden = platform != .ohMyCPA
         if controls.nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             controls.nameField.stringValue = platform.displayName
         }
@@ -870,6 +878,7 @@ final class SettingsWindowController: NSWindowController {
 }
 
 private final class AdapterConfigControls {
+    var connectionHint: NSTextField?
     let id = UUID().uuidString
     let adapterID: String
     var monitoringPath: String?

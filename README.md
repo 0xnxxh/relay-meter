@@ -47,6 +47,8 @@ Relay Meter restores the last successful dashboard immediately on launch, then r
 
 When multiple adapters are enabled, the menu bar title shows the aggregate total. The menu body has source tabs: `All` first, then one tab per adapter. Switching tabs changes the cards, rankings, and trend chart between the aggregate view and a single adapter. If one adapter fails, the others still render and the failed adapter appears as an error on the aggregate tab.
 
+For `ohMyCPA`, select `oh-my-cpa` in Settings. Set `baseURL` to the console URL, including its mount path (for example `https://relay.example.com/omc`), and `managementKey` to the CPA management key used to sign in to that console. Relay Meter signs in through `/api/auth/login` and keeps the session cookie in memory, isolated per URL and credential. Root-mounted consoles are supported. The monitoring link opens that console URL.
+
 For `sub2api`, the default `managementKey` field should be the admin API key configured in sub2api. Relay Meter sends it as `x-api-key: <managementKey>`. sub2api also accepts an admin JWT as `Authorization: Bearer <jwt-token>`, but Relay Meter's Settings window uses the admin API key path by default.
 
 ### Backend Support
@@ -57,11 +59,14 @@ Relay Meter has dedicated adapters for these projects:
 | --- | --- | --- | --- |
 | `cliproxyapiPro` | [ssfun/CLIProxyAPI-Pro](https://github.com/ssfun/CLIProxyAPI-Pro) | `Authorization: Bearer <managementKey>` | `GET /v0/management/usage/aggregates`, including daily heatmap buckets |
 | `sub2api` | [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) | `x-api-key: <managementKey>` by default, or admin JWT with `Authorization: Bearer ...` if overridden | `GET /api/v1/admin/dashboard/stats`, `trend`, and `models`; the heatmap uses daily `trend` data |
+| `ohMyCPA` | oh-my-cpa | Console login with CPA management key; in-memory session Cookie | `GET /api/v1/management/dashboard`, `/models`, and `/token-heatmap` under the console mount path |
 | `newApi` | [QuantumNous/new-api](https://github.com/QuantumNous/new-api) | `Authorization: <access-token>` plus `New-Api-User: <newApiUserID>` | `GET /api/log/` for cards and `GET /api/data/` for the heatmap |
 
 The current app was originally built around [ssfun/CLIProxyAPI-Pro](https://github.com/ssfun/CLIProxyAPI-Pro), so that link is intentionally kept explicit. `sub2api` and `new-api` expose different routes and response schemas, so they are integrated through separate adapters rather than by changing only `baseURL`.
 
 The Activity card shows the latest 13 calendar weeks with weeks as columns and Monday–Sunday as rows. The detail heatmap defaults to the current calendar year and can switch to a rolling year without another request; it also has source and Requests/Tokens controls. A successful aggregate response fills missing days with zero; request failures remain visibly unavailable, and a failed adapter makes the aggregate day partial rather than hiding the gap. Activity data is cached for five minutes.
+
+`ohMyCPA` reads permanent usage facts for cards, recent activity, model rankings, trends and heatmaps. Today, 7d and 30d follow the Mac’s local calendar; All uses the server’s `preset=all` window. Trends retain every returned bucket, grouped by local hour/day. Heatmaps request the Mac’s IANA timezone and leave days before the first stored usage unknown. Per-channel model rankings use token volume and omit the folded remainder; the API does not provide per-model failure counts. Spend is estimated USD and appears only for fully priced windows; partial or unpriced totals show `--`.
 
 `cliproxyapiPro` exposes daily request and token aggregates directly. `sub2api` exposes successful request and token totals through its daily trend endpoint, so failed-request counts are not available in its heatmap. `newApi` requires `enable_data_export`; Relay Meter checks `/api/status` and reads `/api/data/` in monthly chunks. The other new-api cards still aggregate the newest 100 matching `/api/log/` rows.
 
@@ -128,6 +133,8 @@ Relay Meter 启动时会立即恢复上次成功的仪表盘，再在后台刷�
 
 启用多个 adapter 时，菜单栏标题显示聚合总量；菜单展开后有来源标签：第一个是 `总览`，后面每个 adapter 一个标签。切换标签会在聚合视图和单个 adapter 之间切换卡片、排行和趋势图。单个 adapter 失败不会阻止其他 adapter 展示，失败项会显示在总览标签下。
 
+`ohMyCPA`：在设置中选择 `oh-my-cpa`，服务地址填写控制台 URL，并保留挂载路径，例如 `https://relay.example.com/omc`。访问密钥填写登录该控制台使用的 CPA 管理密钥。Relay Meter 通过 `/api/auth/login` 登录，会话 Cookie 仅保存在内存中，按地址及密钥隔离。支持挂载在根路径的控制台，监控页链接会打开该控制台地址。
+
 `sub2api` 的 `managementKey` 默认应填写 sub2api 后台配置的 Admin API Key。Relay Meter 会用 `x-api-key: <managementKey>` 发送。sub2api 也支持管理员 JWT：`Authorization: Bearer <jwt-token>`，但设置页默认走 Admin API Key 方式。
 
 ### 后端支持
@@ -136,6 +143,7 @@ Relay Meter 已为这些项目提供独立 adapter：
 
 | 平台 | 项目 | 鉴权 | 数据接口 |
 | --- | --- | --- | --- |
+| `ohMyCPA` | oh-my-cpa | 使用 CPA 管理密钥登录控制台；内存会话 Cookie | 控制台挂载路径下的 `GET /api/v1/management/dashboard`、`/models`、`/token-heatmap` |
 | `cliproxyapiPro` | [ssfun/CLIProxyAPI-Pro](https://github.com/ssfun/CLIProxyAPI-Pro) | `Authorization: Bearer <managementKey>` | `GET /v0/management/usage/aggregates`，包括热力图日聚合 |
 | `sub2api` | [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) | 默认 `x-api-key: <managementKey>`；如覆盖为 `Authorization`，可使用管理员 JWT `Bearer ...` | `GET /api/v1/admin/dashboard/stats`、`trend`、`models`；热力图使用日粒度 `trend` |
 | `newApi` | [QuantumNous/new-api](https://github.com/QuantumNous/new-api) | `Authorization: <access-token>` 加 `New-Api-User: <newApiUserID>` | 卡片使用 `GET /api/log/`，热力图使用 `GET /api/data/` |
@@ -143,6 +151,8 @@ Relay Meter 已为这些项目提供独立 adapter：
 当前应用最初围绕 [ssfun/CLIProxyAPI-Pro](https://github.com/ssfun/CLIProxyAPI-Pro) 开发，因此 README 明确保留该项目链接。`sub2api` 和 `new-api` 的路由、鉴权和响应结构不同，所以不能只改 `baseURL`，必须走各自 adapter。
 
 活跃度卡片展示最近 13 个日历周，以周为列、周一至周日为行。详情热力图默认显示当年 1 月 1 日至今天，也可切换到滚动一年，切换时无需再次请求；同时支持切换来源和“请求/Token”。聚合接口成功返回时，缺失日期按 0 填充；请求失败仍明确显示不可用，单个 adapter 失败时，聚合日期会标为“部分数据”。活跃度数据缓存 5 分钟。
+
+`ohMyCPA` 的卡片、最近活动、模型排行、趋势和热力图使用永久用量统计。“今天 / 7 天 / 30 天”按 Mac 本地日历查询，“全部”使用服务端 `preset=all`。趋势保留全部返回桶，并按本地小时或日期合并。热力图显式指定 Mac 的 IANA 时区，最早存储记录之前的日期保持未知。单渠道模型按 Token 排序，排除合并的“其他”组；接口没有提供各模型的失败数。费用为预估美元，仅完整定价的时间范围显示金额；部分定价或未定价时显示 `--`。
 
 `cliproxyapiPro` 可直接提供按日请求数和 Token 聚合。`sub2api` 的日趋势只统计成功请求，因此其热力图无法提供失败请求数。`newApi` 需要开启 `enable_data_export`；Relay Meter 会先检查 `/api/status`，再按月读取 `/api/data/`。new-api 的其他卡片仍基于 `/api/log/` 最近 100 条匹配日志聚合。
 
@@ -165,3 +175,15 @@ Relay Meter 已为这些项目提供独立 adapter：
 ```
 
 日志不会写入访问密钥。
+
+### Development verification / 开发验证
+
+Run `scripts/run_characterization_tests.sh` for adapter, settings and rendering regression checks. To verify against the local oh-my-cpa source and its real authentication/router/database handlers, run:
+
+```sh
+scripts/test_oh_my_cpa_integration.sh /path/to/oh-my-cpa
+```
+
+The integration script needs Go and Python 3. It uses an ignored temporary directory in the upstream checkout, a random loopback port and an in-memory database, then removes its fixture. It does not read deployment credentials or contact a real CPA gateway.
+
+执行 `scripts/run_characterization_tests.sh` 可检查渠道、设置和渲染回归。上面的联调脚本需要 Go 和 Python 3，使用 oh-my-cpa 仓库中已忽略的临时目录、随机回环端口及内存数据库，并在结束后清理测试数据。它不读取部署密钥，也不连接真实 CPA 网关。

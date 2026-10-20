@@ -193,12 +193,14 @@ enum MonitorPlatform: String, Codable, CaseIterable {
     case cliproxyapiPro
     case sub2api
     case newApi
+    case ohMyCPA
 
     var displayName: String {
         switch self {
         case .cliproxyapiPro: return "CLIProxyAPI-Pro"
         case .sub2api: return "sub2api"
         case .newApi: return "new-api"
+        case .ohMyCPA: return "oh-my-cpa"
         }
     }
 
@@ -207,6 +209,7 @@ enum MonitorPlatform: String, Codable, CaseIterable {
         case .cliproxyapiPro: return "Authorization"
         case .sub2api: return "x-api-key"
         case .newApi: return "Authorization"
+        case .ohMyCPA: return "Cookie"
         }
     }
 
@@ -215,6 +218,7 @@ enum MonitorPlatform: String, Codable, CaseIterable {
         case .cliproxyapiPro: return "/management.html#/monitoring"
         case .sub2api: return "/admin/dashboard"
         case .newApi: return "/"
+        case .ohMyCPA: return "/"
         }
     }
 }
@@ -327,6 +331,7 @@ struct UsageScope: Codable {
     var outputTokens = 0
     var reasoningTokens = 0
     var cacheTokens = 0
+    var cacheRateInputTokens: Int?
     var costUSD: Double?
     var costIsEstimated = false
     var weightedLatencyTotal = 0
@@ -350,11 +355,15 @@ struct UsageScope: Codable {
     }
 
     var cacheRate: Double {
-        guard inputTokens > 0 else { return 0 }
-        return Double(cacheTokens) / Double(inputTokens)
+        let prompt = cacheRateInputTokens ?? inputTokens
+        guard prompt > 0 else { return 0 }
+        return Double(cacheTokens) / Double(prompt)
     }
 
     mutating func add(_ other: UsageScope) {
+        if cacheRateInputTokens != nil || other.cacheRateInputTokens != nil {
+            cacheRateInputTokens = (cacheRateInputTokens ?? inputTokens) + (other.cacheRateInputTokens ?? other.inputTokens)
+        }
         totalRequests += other.totalRequests
         successCount += other.successCount
         failureCount += other.failureCount
@@ -386,16 +395,17 @@ enum UsageCost {
 struct UsageRankingRow: Codable {
     var label: String
     var requests: Int
-    var failures: Int
+    var failures: Int?
     var tokens: Int
-    var successRate: Double {
+    var successRate: Double? {
+        guard let failures else { return nil }
         guard requests > 0 else { return 1 }
         return Double(requests - failures) / Double(requests)
     }
 
-    mutating func add(requests: Int, failures: Int, tokens: Int) {
+    mutating func add(requests: Int, failures: Int?, tokens: Int) {
         self.requests += requests
-        self.failures += failures
+        self.failures = self.failures.flatMap { current in failures.map { current + $0 } }
         self.tokens += tokens
     }
 }
@@ -525,6 +535,7 @@ enum MonitorError: LocalizedError {
     case noAdaptersConfigured
     case allAdaptersFailed(String)
     case invalidActivityDateRange
+    case incompleteUsageData(AppLanguage)
 
     var errorDescription: String? {
         switch self {
@@ -545,6 +556,8 @@ enum MonitorError: LocalizedError {
             return "All adapters failed: \(message)"
         case .invalidActivityDateRange:
             return "Invalid activity date range"
+        case .incompleteUsageData(let language):
+            return TextBundle.forLanguage(language).incompleteUsageData
         }
     }
 }

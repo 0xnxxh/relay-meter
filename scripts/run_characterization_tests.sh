@@ -17,6 +17,7 @@ swiftc \
   -framework AppKit \
   "${SOURCES[@]}" \
   "$ROOT_DIR/Tests/CharacterizationTests.swift" \
+  "$ROOT_DIR/Tests/OhMyCPATests.swift" \
   -o "$TEST_BINARY"
 
 "$TEST_BINARY"

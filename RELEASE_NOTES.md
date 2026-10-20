@@ -1,13 +1,14 @@
-# Relay Meter v1.0.14
+# Relay Meter v1.0.15
 
 ## Highlights
 
-- Adds an optional edge sidebar: a vertical strip of ring gauges, one per adapter, parked against the side of the screen. Enable it in Settings > Display.
-- Each ring fills with that adapter's share of total tokens, shows the adapter's initial in the centre, and its token volume underneath.
-- Clicking a ring opens a compact bubble with token share, success rate, top model breakdown, and a shortcut back to the full panel.
-- The strip can be dragged anywhere and snaps to the left or right screen edge; its placement is remembered across launches.
+- Adds a dedicated oh-my-cpa channel for traffic, tokens/cache, estimated spend, latency, recent activity, model rankings, trends, and usage heatmaps.
+- Supports console URLs with a mount path such as `/omc`, as well as root-mounted consoles. Enter the CPA management key used to sign in to the console.
+- Keeps login sessions in memory, isolated by console URL and credential, and signs in again when a session expires.
+- Preserves the complete returned trend series in the aggregate dashboard.
 
 ## Notes
 
-- The sidebar is off by default and runs alongside the existing menu bar panel, which is unchanged.
-- Adapters with no recorded tokens render an explicit empty ring rather than an implied even split.
+- Today, 7d, and 30d follow the Mac's local calendar; All uses oh-my-cpa's permanent usage window.
+- Heatmaps use the Mac's timezone and leave days before the first stored usage unknown.
+- Partially priced or unpriced windows show `--` for spend. Model rankings omit the folded remainder and retain unknown per-model failure counts.

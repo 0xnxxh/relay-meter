@@ -19,6 +19,7 @@ struct CharacterizationTests {
         testUsageActivityQuantileIntensity()
         testNewAPIActivityRowDecoding()
         await testCLIProxyCost()
+        await OhMyCPATests.run()
         await testSub2APICost()
         await testNewAPIActivityUsesAggregateEndpoint()
         await testSingleAdapterDashboardRankingLabels()

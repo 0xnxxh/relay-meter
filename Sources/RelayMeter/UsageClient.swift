@@ -4,6 +4,7 @@ final class UsageClient {
     private let config: AppConfig
     private let session: URLSession
     private let logger: AppLogger
+    private let ohMyCPASessions = OhMyCPASessionStore()
 
     init(config: AppConfig, session: URLSession = .shared, logger: AppLogger = .shared) {
         self.config = config
@@ -12,10 +13,10 @@ final class UsageClient {
     }
 
     func fetchSnapshot() async throws -> UsageSnapshot {
-        try await Self.fetchSnapshot(config: config, session: session, logger: logger)
+        try await Self.fetchSnapshot(config: config, session: session, logger: logger, ohMyCPASessions: ohMyCPASessions)
     }
 
-    private static func fetchSnapshot(config: AppConfig, session: URLSession, logger: AppLogger) async throws -> UsageSnapshot {
+    private static func fetchSnapshot(config: AppConfig, session: URLSession, logger: AppLogger, ohMyCPASessions: OhMyCPASessionStore) async throws -> UsageSnapshot {
         switch config.resolvedPlatform {
         case .cliproxyapiPro:
             return try await CLIProxyAPIProUsageAdapter(config: config, session: session, logger: logger).fetchSnapshot()
@@ -23,6 +24,9 @@ final class UsageClient {
             return try await Sub2APIUsageAdapter(config: config, session: session, logger: logger).fetchSnapshot()
         case .newApi:
             return try await NewAPIUsageAdapter(config: config, session: session, logger: logger).fetchSnapshot()
+        case .ohMyCPA:
+            let connection = await ohMyCPASessions.connection(config: config, session: session)
+            return try await OhMyCPAUsageAdapter(config: config, connection: connection, logger: logger).fetchSnapshot()
         }
     }
 
@@ -36,10 +40,10 @@ final class UsageClient {
 
         await withTaskGroup(of: AdapterFetchResult.self) { group in
             for adapter in adapters {
-                group.addTask { [config, session, logger] in
+                group.addTask { [config, session, logger, ohMyCPASessions] in
                     let scopedConfig = config.scoped(to: adapter)
                     do {
-                        var snapshot = try await Self.fetchSnapshot(config: scopedConfig, session: session, logger: logger)
+                        var snapshot = try await Self.fetchSnapshot(config: scopedConfig, session: session, logger: logger, ohMyCPASessions: ohMyCPASessions)
                         snapshot.sourceID = adapter.resolvedID
                         snapshot.sourceName = adapter.displayName
                         return .success(snapshot)
@@ -760,12 +764,12 @@ private func aggregateSnapshot(
         selectedRange: range,
         scope: scope,
         recent: recent,
-        trendPoints: trendByBucket.values.sorted { $0.bucketStartMs < $1.bucketStartMs }.suffix(30).map { $0 },
+        trendPoints: trendByBucket.values.sorted { $0.bucketStartMs < $1.bucketStartMs },
         activity: UsageActivitySeries.aggregateSources(
             snapshots.map(\.activity),
             expectedSourceCount: expectedActivitySourceCount
         ),
-        topModels: Array(modelRows.values).sortedForRanking().prefix(3).map { $0 },
+        topModels: expectedActivitySourceCount == 1 ? (snapshots.first?.topModels ?? []) : Array(modelRows.values).sortedForRanking().prefix(3).map { $0 },
         refreshedAt: refreshedAt
     )
 }

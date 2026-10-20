@@ -42,6 +42,8 @@ struct TextBundle {
     let baseURL: String
     let managementKey: String
     let newApiUserID: String
+    let ohMyCPAConnectionHint: String
+    let incompleteUsageData: String
     let refreshIntervalSeconds: String
     let quit: String
     let total: String
@@ -85,7 +87,10 @@ struct TextBundle {
         adapters: "Adapters",
         adapterName: "名称",
         allAdapters: "总览",
-        baseURL: "服务地址", managementKey: "访问密钥", newApiUserID: "new-api 用户 ID", refreshIntervalSeconds: "刷新间隔（秒）",
+        baseURL: "服务地址", managementKey: "访问密钥", newApiUserID: "new-api 用户 ID",
+        ohMyCPAConnectionHint: "填写控制台地址（含 /omc 等路径）及 CPA 管理密钥。",
+        incompleteUsageData: "oh-my-cpa 返回的用量数据不完整",
+        refreshIntervalSeconds: "刷新间隔（秒）",
         quit: "退出",
         total: "总量", input: "输入", output: "输出", reasoning: "推理",
         last15m: "15 分钟", tokenUnit: "tok", cacheUnit: "缓存", avg: "平均",
@@ -114,6 +119,8 @@ struct TextBundle {
         adapterName: "Name",
         allAdapters: "All",
         baseURL: "Base URL", managementKey: "Access Key", newApiUserID: "new-api User ID",
+        ohMyCPAConnectionHint: "Use the console URL (including /omc if mounted there) and CPA management key.",
+        incompleteUsageData: "oh-my-cpa returned incomplete usage data",
         refreshIntervalSeconds: "Refresh Interval (seconds)", quit: "Quit", total: "total", input: "in",
         output: "out", reasoning: "reasoning", last15m: "15m", tokenUnit: "tok",
         cacheUnit: "cache", avg: "avg", ttft: "TTFT", healthGood: "Healthy",
